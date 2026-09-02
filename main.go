@@ -428,11 +428,21 @@ func setRawTerminal() (*exec.Cmd, error) {
 }
 
 func restoreTerminal() {
-	cookedCmd := exec.Command("stty", "-raw", "echo")
+	cookedCmd := exec.Command("stty", "sane")
 	cookedCmd.Stdin = os.Stdin
 	_ = cookedCmd.Run()
-	// Show cursor
-	fmt.Print("\033[?25h")
+	// Show cursor and reset text attributes
+	fmt.Print("\033[0m\033[?25h")
+}
+
+func enterAlternateScreen() {
+	// Enter alternate screen buffer & hide cursor
+	fmt.Print("\033[?1049h\033[?25l")
+}
+
+func exitAlternateScreen() {
+	// Exit alternate screen buffer, restore main screen & show cursor
+	fmt.Print("\033[0m\033[?25h\033[?1049l")
 }
 
 func renderTUI(entries []displayEntry, cursor int, filterText string, searchPattern string, inFilterMode bool) {
@@ -453,7 +463,7 @@ func renderTUI(entries []displayEntry, cursor int, filterText string, searchPatt
 	}
 
 	var buf bytes.Buffer
-	// Clear screen & reset cursor position
+	// Reset cursor to top-left and clear display
 	buf.WriteString("\033[H\033[2J")
 
 	// Filter string with red cursor indicator when typing in filter mode
@@ -574,15 +584,15 @@ func runTUI(results []WigResultItem, searchPattern string) {
 		cursor = 1
 	}
 
+	enterAlternateScreen()
+	defer exitAlternateScreen()
+
 	_, err := setRawTerminal()
 	if err != nil {
 		fmt.Println("Failed to initialize raw terminal UI.")
 		return
 	}
 	defer restoreTerminal()
-
-	// Hide cursor during navigation
-	fmt.Print("\033[?25l")
 
 	reader := bufio.NewReader(os.Stdin)
 	var numBuffer string
@@ -645,7 +655,7 @@ func runTUI(results []WigResultItem, searchPattern string) {
 		switch b {
 		case 'q', 3: // 'q' or Ctrl+C to quit
 			restoreTerminal()
-			fmt.Println()
+			exitAlternateScreen()
 			return
 
 		case '/': // Enter filter search mode
@@ -706,23 +716,30 @@ func runTUI(results []WigResultItem, searchPattern string) {
 				cursor = len(entries) - 1
 			}
 
-		case '\r', '\n', 'o': // Open selection in editor
+		case '\r', '\n', 'o': // Open selection in editor and return back to TUI on quit
 			if len(entries) == 0 || cursor >= len(entries) {
 				continue
 			}
 			target := entries[cursor]
+
+			// 1. Temporarily restore cooked terminal mode before handing over to editor
 			restoreTerminal()
+			exitAlternateScreen()
 
 			if target.isHeader {
-				// Open header file at line 1
-				openEditor(WigResultItem{
+				_ = openEditor(WigResultItem{
 					FilePath: target.filePath,
 					Line:     1,
 				})
 			} else {
-				openEditor(target.matchItem)
+				_ = openEditor(target.matchItem)
 			}
-			return
+
+			// 2. Re-enter alternate screen buffer & raw terminal mode to resume TUI
+			enterAlternateScreen()
+			_, _ = setRawTerminal()
+			reader = bufio.NewReader(os.Stdin) // Re-create reader for fresh stdin state
+			continue
 
 		case 27: // Handle ANSI Arrow Keys
 			if reader.Buffered() >= 2 {
@@ -810,9 +827,9 @@ func main() {
 
 	flag.BoolVar(&viewFlag, "v", false, "View last search results stored in wig session")
 	flag.BoolVar(&viewFlag, "view", false, "View last search results stored in wig session")
-	flag.BoolVar(&editFlag, "e", false, "Edit config.toml in $EDITOR")
+	flag.BoolVar(&editFlag, "e", false, "")
 	flag.BoolVar(&editFlag, "edit", false, "Edit config.toml in $EDITOR")
-	flag.BoolVar(&ignoreCaseFlag, "i", false, "Case-insensitive search")
+	flag.BoolVar(&ignoreCaseFlag, "i", false, "")
 	flag.BoolVar(&ignoreCaseFlag, "ignore-case", false, "Case-insensitive search")
 	flag.BoolVar(&fzfFlag, "fzf", false, "Force fzf picker")
 	flag.BoolVar(&initFlag, "init", false, "Clear history and session")
