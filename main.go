@@ -86,6 +86,42 @@ func getHistoryPath() string {
 	return filepath.Join(getConfigDir(), "history.json")
 }
 
+func getConfigFilePath() string {
+	return filepath.Join(getConfigDir(), "config.toml")
+}
+
+func editConfig() error {
+	configPath := getConfigFilePath()
+
+	// Create config.toml with defaults if it doesn't exist
+	if _, err := os.Stat(configPath); os.IsNotExist(err) {
+		defaultContent := `# vgrep configuration file
+editor = "wig"
+# session_file = "~/.config/wig/rg_search.json"
+`
+		if err := os.WriteFile(configPath, []byte(defaultContent), 0644); err != nil {
+			return fmt.Errorf("failed to create config file: %w", err)
+		}
+	}
+
+	editor := os.Getenv("EDITOR")
+	if editor == "" {
+		if hasExecutable("wig") {
+			editor = "wig"
+		} else if hasExecutable("nvim") {
+			editor = "nvim"
+		} else {
+			editor = "vim"
+		}
+	}
+
+	cmd := exec.Command(editor, configPath)
+	cmd.Stdin = os.Stdin
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	return cmd.Run()
+}
+
 // --- Project Root Detector ---
 
 func findProjectRoot() string {
@@ -760,6 +796,7 @@ func presentMatches(results []WigResultItem, pattern string, useFzf bool) {
 func main() {
 	var (
 		viewFlag       bool
+		editFlag       bool
 		ignoreCaseFlag bool
 		fzfFlag        bool
 		initFlag       bool
@@ -773,6 +810,8 @@ func main() {
 
 	flag.BoolVar(&viewFlag, "v", false, "View last search results stored in wig session")
 	flag.BoolVar(&viewFlag, "view", false, "View last search results stored in wig session")
+	flag.BoolVar(&editFlag, "e", false, "Edit config.toml in $EDITOR")
+	flag.BoolVar(&editFlag, "edit", false, "Edit config.toml in $EDITOR")
 	flag.BoolVar(&ignoreCaseFlag, "i", false, "Case-insensitive search")
 	flag.BoolVar(&ignoreCaseFlag, "ignore-case", false, "Case-insensitive search")
 	flag.BoolVar(&fzfFlag, "fzf", false, "Force fzf picker")
@@ -792,6 +831,15 @@ func main() {
 		os.Remove(getHistoryPath())
 		os.Remove(getWigSessionPath())
 		fmt.Println("Cleared search history and wig session cache.")
+		return
+	}
+
+	// Edit config.toml (`-e` or `--edit`)
+	if editFlag {
+		if err := editConfig(); err != nil {
+			fmt.Fprintf(os.Stderr, "Failed to edit config: %v\n", err)
+			os.Exit(1)
+		}
 		return
 	}
 
