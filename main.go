@@ -60,6 +60,55 @@ type SearchHistoryItem struct {
 // ProjectHistory maps repo/root path -> list of search items
 type HistoryStore map[string][]SearchHistoryItem
 
+// --- Launch external replace tool (rgr / repgrep / rg -r) ---
+
+func runReplacer(pattern string, fileTypes []string, ignoreCase bool) error {
+	// 1. Prefer 'rgr' (repgrep/ripgrep_replace) if installed
+	if hasExecutable("rgr") {
+		var args []string
+		if ignoreCase {
+			args = append(args, "-i")
+		}
+		for _, ft := range fileTypes {
+			args = append(args, "-g", ft)
+		}
+		args = append(args, pattern)
+
+		cmd := exec.Command("rgr", args...)
+		cmd.Stdin = os.Stdin
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+		return cmd.Run()
+	}
+
+	// 2. Fallback: Prompt for replacement string and run rg -r preview
+	fmt.Print("\033[1;36mEnter replacement string (rgr not found):\033[0m ")
+	reader := bufio.NewReader(os.Stdin)
+	replacement, _ := reader.ReadString('\n')
+	replacement = strings.TrimSpace(replacement)
+
+	var args []string
+	args = append(args, "-r", replacement)
+	if ignoreCase {
+		args = append(args, "-i")
+	}
+	for _, ft := range fileTypes {
+		args = append(args, "-g", ft)
+	}
+	args = append(args, pattern)
+
+	fmt.Printf("\n\033[1;33m--- Replacement Preview (rg -r %q %q) ---\033[0m\n\n", replacement, pattern)
+	cmd := exec.Command("rg", args...)
+	cmd.Stdin = os.Stdin
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	_ = cmd.Run()
+
+	fmt.Print("\n\033[90mPress Enter to return to vgrep...\033[0m")
+	_, _ = reader.ReadString('\n')
+	return nil
+}
+
 // --- Helper paths ---
 
 func getConfigDir() string {
@@ -516,12 +565,12 @@ func renderTUI(entries []displayEntry, cursor int, filterText string, searchPatt
 	}
 
 	// Footer Help / Vim motion bar
-	buf.WriteString("\033[K\r\n\033[90m[j/k, <num>j/k, J/K (files), gg/G, / (filter), Enter/o (open), q (quit)]\033[0m\033[K")
+	buf.WriteString("\033[K\r\n\033[90m[j/k, <num>j/k, J/K (files), g/G, / (filter), r (rgr replace), Enter/o (open), q (quit)]\033[0m\033[K")
 
 	os.Stdout.Write(buf.Bytes())
 }
 
-func runTUI(results []WigResultItem, searchPattern string) {
+func runTUI(results []WigResultItem, searchPattern string, fileTypes []string, ignoreCase bool) {
 	if len(results) == 0 {
 		fmt.Printf("No matches found for %q\n", searchPattern)
 		return
@@ -658,6 +707,18 @@ func runTUI(results []WigResultItem, searchPattern string) {
 			exitAlternateScreen()
 			return
 
+		case 'r': // Launch rgr (find & replace) on searchPattern
+			restoreTerminal()
+			exitAlternateScreen()
+
+			_ = runReplacer(searchPattern, fileTypes, ignoreCase)
+
+			// Resume TUI
+			enterAlternateScreen()
+			_, _ = setRawTerminal()
+			reader = bufio.NewReader(os.Stdin)
+			continue
+
 		case '/': // Enter filter search mode
 			inFilterMode = true
 
@@ -764,7 +825,7 @@ func runTUI(results []WigResultItem, searchPattern string) {
 
 // --- CLI Display & Selection ---
 
-func presentMatches(results []WigResultItem, pattern string, useFzf bool) {
+func presentMatches(results []WigResultItem, pattern string, fileTypes []string, ignoreCase bool, useFzf bool) {
 	if len(results) == 0 {
 		fmt.Printf("No matches found for %q\n", pattern)
 		return
@@ -802,8 +863,8 @@ func presentMatches(results []WigResultItem, pattern string, useFzf bool) {
 		return
 	}
 
-	// Rule 3: Interactive Relative TUI with Vim Motions (3j/3k, J/K file jump, / filter)
-	runTUI(results, pattern)
+	// Rule 3: Interactive Relative TUI with Vim Motions (3j/3k, J/K file jump, / filter, r replace)
+	runTUI(results, pattern, fileTypes, ignoreCase)
 }
 
 // --- Main Program ---
@@ -823,7 +884,7 @@ func main() {
 		swiftFlag      bool
 	)
 
-	flag.BoolVar(&viewFlag, "v", false, "View last search results stored in wig session")
+	flag.BoolVar(&viewFlag, "v", false, "")
 	flag.BoolVar(&viewFlag, "view", false, "View last search results stored in wig session")
 	flag.BoolVar(&editFlag, "e", false, "")
 	flag.BoolVar(&editFlag, "edit", false, "Edit config.toml in $EDITOR")
@@ -865,7 +926,7 @@ func main() {
 			fmt.Println("No existing wig search session found.")
 			return
 		}
-		presentMatches(results, "last session", fzfFlag)
+		presentMatches(results, "last session", nil, ignoreCaseFlag, fzfFlag)
 		return
 	}
 
@@ -930,5 +991,5 @@ func main() {
 	}
 
 	// 7. Interactive Display & Jump
-	presentMatches(results, pattern, fzfFlag)
+	presentMatches(results, pattern, fileTypes, ignoreCaseFlag, fzfFlag)
 }
