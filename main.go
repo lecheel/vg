@@ -809,7 +809,7 @@ func runTUI(results []WigResultItem, searchPattern string, fileTypes []string, i
 				cursor = 0
 			}
 
-		case 'J': // Next file: land on first match line (Shift+J)
+		case 'J', 'l': // Next file: land on first match line (Shift+J)
 			for i := 0; i < count; i++ {
 				found := false
 				for _, g := range groups {
@@ -835,7 +835,7 @@ func runTUI(results []WigResultItem, searchPattern string, fileTypes []string, i
 				}
 			}
 
-		case 'K': // Prev file: land on first match line (Shift+K)
+		case 'K', 'L': // Prev file: land on first match line (Shift+K)
 			for i := 0; i < count; i++ {
 				found := false
 				for idx := len(groups) - 1; idx >= 0; idx-- {
