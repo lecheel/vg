@@ -341,8 +341,9 @@ func selectHistoryPattern(root string) string {
 	store := loadHistory()
 	items := store[root]
 	if len(items) == 0 {
+		// Even with no recorded patterns, still offer the view-last-session option.
 		fmt.Println("No previous search patterns recorded for this project.")
-		return ""
+		return launchViewSession()
 	}
 
 	// Sort by count desc, then timestamp desc
@@ -353,8 +354,12 @@ func selectHistoryPattern(root string) string {
 		return items[i].UseCount > items[j].UseCount
 	})
 
+	const viewLabel = "vgrep view (like vgrep -v)"
+
 	if hasExecutable("fzf") {
 		var menuLines []string
+		// Index 00 -> view last wig session (same as `vgrep -v`)
+		menuLines = append(menuLines, fmt.Sprintf("00 | %s", viewLabel))
 		for i, it := range items {
 			menuLines = append(menuLines, fmt.Sprintf("%02d | [%d hits] (%s) %s", i+1, it.UseCount, formatRelativeTime(it.Timestamp), it.Pattern))
 		}
@@ -369,6 +374,9 @@ func selectHistoryPattern(root string) string {
 				parts := strings.SplitN(selected, " | ", 2)
 				if len(parts) == 2 {
 					idx, _ := strconv.Atoi(parts[0])
+					if idx == 0 {
+						return launchViewSession()
+					}
 					if idx > 0 && idx <= len(items) {
 						return items[idx-1].Pattern
 					}
@@ -380,6 +388,7 @@ func selectHistoryPattern(root string) string {
 
 	// Fallback CLI menu
 	fmt.Printf("\nSaved searches for [%s]:\n", filepath.Base(root))
+	fmt.Printf("  \033[33m[0]\033[0m \033[36m%s\033[0m\n", viewLabel)
 	for i, it := range items {
 		fmt.Printf("  \033[33m[%d]\033[0m \033[36m(%s)\033[0m %s\n", i+1, formatRelativeTime(it.Timestamp), it.Pattern)
 	}
@@ -387,9 +396,27 @@ func selectHistoryPattern(root string) string {
 	var input string
 	fmt.Scanln(&input)
 	idx, err := strconv.Atoi(strings.TrimSpace(input))
-	if err == nil && idx > 0 && idx <= len(items) {
+	if err != nil {
+		return ""
+	}
+	if idx == 0 {
+		return launchViewSession()
+	}
+	if idx > 0 && idx <= len(items) {
 		return items[idx-1].Pattern
 	}
+	return ""
+}
+
+// launchViewSession re-opens the last wig search session results (like `vgrep -v`).
+// It returns an empty pattern so the caller in main() exits without re-running rg.
+func launchViewSession() string {
+	results, err := readWigSession()
+	if err != nil || len(results) == 0 {
+		fmt.Println("No existing wig search session found.")
+		return ""
+	}
+	presentMatches(results, "last session", nil, false, false)
 	return ""
 }
 
