@@ -628,10 +628,6 @@ func runTUI(results []WigResultItem, searchPattern string, fileTypes []string, i
 	}
 
 	cursor := 0
-	// Position cursor at first match if entry 0 is a header
-	if len(entries) > 1 && entries[0].isHeader {
-		cursor = 1
-	}
 
 	enterAlternateScreen()
 	defer exitAlternateScreen()
@@ -734,41 +730,60 @@ func runTUI(results []WigResultItem, searchPattern string, fileTypes []string, i
 				cursor = 0
 			}
 
-		case 'J': // Next file header (Shift+J)
+		case 'J': // Next file: land on first match line (Shift+J)
 			for i := 0; i < count; i++ {
 				found := false
 				for _, g := range groups {
-					if g.entryIndex > cursor {
-						cursor = g.entryIndex
+					// Target is the first match under the next header (g.entryIndex + 1)
+					targetIdx := g.entryIndex
+					if targetIdx+1 < len(entries) && !entries[targetIdx+1].isHeader {
+						targetIdx = targetIdx + 1
+					}
+
+					if targetIdx > cursor {
+						cursor = targetIdx
 						found = true
 						break
 					}
 				}
 				if !found && len(groups) > 0 {
-					cursor = groups[len(groups)-1].entryIndex
+					lastHeader := groups[len(groups)-1].entryIndex
+					if lastHeader+1 < len(entries) && !entries[lastHeader+1].isHeader {
+						cursor = lastHeader + 1
+					} else {
+						cursor = lastHeader
+					}
 				}
 			}
 
-		case 'K': // Prev file header (Shift+K)
+		case 'K': // Prev file: land on first match line (Shift+K)
 			for i := 0; i < count; i++ {
 				found := false
 				for idx := len(groups) - 1; idx >= 0; idx-- {
-					if groups[idx].entryIndex < cursor {
-						cursor = groups[idx].entryIndex
+					g := groups[idx]
+					targetIdx := g.entryIndex
+					if targetIdx+1 < len(entries) && !entries[targetIdx+1].isHeader {
+						targetIdx = targetIdx + 1
+					}
+
+					if targetIdx < cursor {
+						cursor = targetIdx
 						found = true
 						break
 					}
 				}
 				if !found && len(groups) > 0 {
-					cursor = groups[0].entryIndex
+					firstHeader := groups[0].entryIndex
+					if firstHeader+1 < len(entries) && !entries[firstHeader+1].isHeader {
+						cursor = firstHeader + 1
+					} else {
+						cursor = firstHeader
+					}
 				}
 			}
 
-		case 'g': // Jump to top
+		case 'g': // Jump to top (including line 0 / first file header)
 			cursor = 0
-			if len(entries) > 1 && entries[0].isHeader {
-				cursor = 1
-			}
 
 		case 'G': // Bottom of list
 			if len(entries) > 0 {
