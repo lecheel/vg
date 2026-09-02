@@ -554,8 +554,8 @@ func renderTUI(entries []displayEntry, cursor int, filterText string, searchPatt
 			if searchPattern != "" {
 				cleanText = strings.ReplaceAll(cleanText, searchPattern, fmt.Sprintf("\033[1;31m%s\033[0m%s", searchPattern, bgStyle))
 			}
-			buf.WriteString(fmt.Sprintf("%s%s %s  \033[1;32m[%d]\033[0m \033[33m%4d:\033[0m %s%s\033[K\r\n",
-				cursorPrefix, relNumStr, bgStyle, entry.displayNum, entry.matchItem.Line, cleanText, resetStyle))
+			buf.WriteString(fmt.Sprintf("%s%s %s  \033[33m%4d:\033[0m %s%s\033[K\r\n",
+				cursorPrefix, relNumStr, bgStyle, entry.matchItem.Line, cleanText, resetStyle))
 		}
 	}
 
