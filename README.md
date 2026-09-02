@@ -1,19 +1,21 @@
 # vgrep
 
-A blazing-fast, project-aware interactive CLI search tool built on top of [ripgrep (`rg`)](https://github.com/BurntSushi/ripgrep). 
+A blazing-fast, project-aware interactive CLI search tool built on top of [ripgrep (`rg`)](https://github.com/BurntSushi/ripgrep).
 
-`vgrep` bridges the gap between searching code and editing it by providing **Vim-motion navigation**, **scoped project history recall**, and direct integration with editors like **`wig`**, **`nvim`**, and **`vim`**.
+`vgrep` bridges the gap between searching code and editing it by providing **Vim-motion navigation**, **scoped project history recall**, **live find & replace via `rgr`**, and direct session integration with editors like **`wig`**, **`nvim`**, and **`vim`**.
 
 ---
 
 ## Features
 
 - ⚡ **Powered by `ripgrep`**: Instant search with automatic `.gitignore` parsing, pruning of build/target directories, and multi-threaded traversal.
-- 🎯 **Vim-Motion TUI**: Navigate search results using relative line numbers, counts (e.g. `3j`, `5k`), file jumps (`J`/`K`), live filtering (`/`), and return right back to your search list after `:q` in your editor.
+- 🎯 **Vim-Motion TUI**: Navigate search results using relative line numbers, counts (e.g., `3j`, `5k`), file-aware jumps (`J`/`K`), live filtering (`/`), and return right back to your search list after `:q` in your editor.
+- 🔁 **Find & Replace (`r` with `rgr`)**: Press `r` in the TUI to launch [repgrep / `rgr`](https://github.com/acheronfail/repgrep) for interactive search and replacement.
+- 🩺 **Environment Health Check (`--health`)**: Instantly inspect installed tooling (`rg`, `fzf`, `rgr`, `$EDITOR`) and configuration paths with clean `~` path abbreviation.
 - 🧠 **Project-Scoped History**: Running `vgrep` without arguments remembers and recalls past search patterns specific to the current Git repository or workspace.
-- 📂 **Auto-Detection & Quick Shorthands**: 
+- 📂 **Auto-Detection & Quick Shorthands**:
   - Automatically identifies projects (`go.mod`, `Cargo.toml`, `pyproject.toml`, etc.).
-  - Converts shorthand patterns (e.g. `myHandler_fn` $\rightarrow$ `func myHandler` or `fn myHandler`).
+  - Converts shorthand patterns (e.g., `myHandler_fn` $\rightarrow$ `func myHandler` or `fn myHandler`).
 - ⚡ **Auto-Jump on Single Match**: Directly opens the editor if the search yields exactly one result.
 - 🔄 **`wig` Quickfix Session Synchronization**: Automatically exports search matches to `~/.config/wig/rg_search.json` for editor session sharing.
 - 📜 **Review Mode (`-v` / `--view`)**: Revisit and interact with your previous search session without re-scanning the codebase.
@@ -23,9 +25,10 @@ A blazing-fast, project-aware interactive CLI search tool built on top of [ripgr
 ## Installation
 
 ### Prerequisites
-- [ripgrep (`rg`)](https://github.com/BurntSushi/ripgrep) installed and available in `$PATH`.
-- (Optional) [fzf](https://github.com/junegunn/fzf) for fuzzy history selection.
-- An editor like `wig`, `nvim`, or `vim`.
+- [ripgrep (`rg`)](https://github.com/BurntSushi/ripgrep) (required)
+- [repgrep (`rgr`)](https://github.com/acheronfail/repgrep) (optional, enables `r` find & replace)
+- [fzf](https://github.com/junegunn/fzf) (optional, for fuzzy history selection)
+- An editor like `wig`, `nvim`, or `vim`
 
 ### Build from Source
 ```bash
@@ -70,7 +73,7 @@ Run `vgrep` without arguments inside any repository to view and select from rece
 ```bash
 vgrep
 ```
-*Presents an interactive `fzf` or numbered list ranked by frequency and relative recency (e.g. `just now`, `10m ago`, `2d ago`).*
+*Presents an interactive `fzf` or numbered list ranked by frequency and relative recency (e.g., `just now`, `10m ago`, `2d ago`).*
 
 ### 5. Review Previous Search Results
 Re-open the last search results saved in the session cache without running `rg` again:
@@ -80,13 +83,21 @@ vgrep -v
 vgrep --view
 ```
 
-### 6. Edit Configuration
+### 6. Health Check
+Check your installed dependencies, editors, and config paths:
+```bash
+vgrep --health
+```
+
+### 7. Edit Configuration
 Open `~/.config/vgrep/config.toml` in your `$EDITOR`:
 ```bash
 vgrep -e
+# or
+vgrep --edit
 ```
 
-### 7. Clear History & Cache
+### 8. Clear History & Cache
 Wipe project history and cached session files:
 ```bash
 vgrep --init
@@ -100,26 +111,27 @@ When multiple matches are found, `vgrep` enters the interactive alternate-screen
 
 ```text
  vgrep  filter: 
->  0 📁 /path/to/project/main.go
-   1   [1]   12: func initialize() {
-   2   [2]   48: func handleRequest() {
-   3 📁 /path/to/project/router.go
-   4   [3]    8: func registerRoutes() {
+>  0 📁 ~/project/main.go
+   1     12: func initialize() {
+   2     48: func handleRequest() {
+   3 📁 ~/project/router.go
+   4      8: func registerRoutes() {
 
-[j/k, <num>j/k, J/K (files), gg/G, / (filter), Enter/o (open), q (quit)]
+[j/k, <num>j/k, J/K (files), g/G, / (filter), r (rgr replace), Enter/o (open), q (quit)]
 ```
 
 | Key | Action |
 |---|---|
 | `j` / `k` | Move cursor down / up by 1 row |
-| `<num>j` / `<num>k` | Jump down / up by `<num>` rows (e.g. `3j`, `5k`) |
-| `J` (`Shift+j`) | Jump to the **next file header** |
-| `K` (`Shift+k`) | Jump to the **previous file header** |
-| `g` | Jump to the top |
-| `G` | Jump to the bottom |
-| `/` | Enter live filter mode (shows red cursor; press `Enter`/`Esc` to exit filter) |
-| `<Enter>` / `o` | Open file at line in `$EDITOR` (returns to TUI after `:q`) |
-| `q` / `Ctrl+c` | Exit `vgrep` and restore original terminal screen |
+| `<num>j` / `<num>k` | Jump down / up by `<num>` rows (e.g., `3j`, `5k`) |
+| `J` (`Shift+j`) | Jump to the **first match of the next file** |
+| `K` (`Shift+k`) | Jump to the **first match of the previous file** |
+| `g` | Jump to top (file header at row 0) |
+| `G` | Jump to bottom |
+| `/` | Enter live filter mode (shows red block cursor; press `Enter`/`Esc` to exit filter) |
+| `r` | Launch `rgr` (repgrep) for interactive search and replace (hidden if `rgr` is not installed) |
+| `<Enter>` / `o` | Open file at line in `$EDITOR` (returns back to TUI after `:q`) |
+| `q` / `Ctrl+c` | Exit `vgrep` and restore original terminal screen cleanly |
 
 ---
 
@@ -144,6 +156,62 @@ This enables `wig` to load the exact search result list into its quickfix/search
 
 ---
 
+## Session & `rg_search.json` Format
+
+Unlike standard `rg --json` (which emits a stream of newline-delimited JSON events like `begin`, `match`, `end`, and `summary`), `vgrep` aggregates, filters, and transforms results into a **clean root JSON array** stored at `~/.config/wig/rg_search.json`.
+
+```text
+[ vgrep query ] ──► [ rg --json -g <globs> <pattern> ]
+                             │
+                      (NDJSON Stream)
+                             │
+                             ▼
+              [ Decode RgMessage / RgMatchData ]
+               - FilePath (normalized to absolute path)
+               - LineNumber
+               - Submatches[0].Start (character column)
+               - Lines.Text (matching line content)
+                             │
+                             ▼
+                 [ Serialize to JSON Array ]
+                             │
+                             ▼
+             ~/.config/wig/rg_search.json
+```
+
+### JSON Schema
+
+```json
+[
+  {
+    "file_path": "/opt/ai/gh/vig/cmd/main.go",
+    "line": 94,
+    "char": 76,
+    "text": "\tkeys := wig.NewKeyHandler(config.DefaultKeyMap(editorCfg.Leader, editorCfg.CommentStyle))\n"
+  },
+  {
+    "file_path": "/opt/ai/gh/vig/editor.go",
+    "line": 14,
+    "char": 1,
+    "text": "\tCommentStyle        string `toml:\"comment_style\"`\n"
+  }
+]
+```
+
+### Field Definitions
+
+| Field | Type | Description |
+|---|---|---|
+| `file_path` | `string` | Fully-qualified absolute path to the file |
+| `line` | `int` | 1-based line number of the match |
+| `char` | `int` | 0-based character column offset of the match start |
+| `text` | `string` | Raw line content (including original whitespace/newlines) |
+
+### Session Re-use (`-v` / `--view`)
+When `vgrep -v` is invoked, `vgrep` skips running `ripgrep` entirely and loads this JSON session file directly into the interactive TUI for instant replay and navigation.
+
+---
+
 ## Configuration File (`~/.config/vgrep/config.toml`)
 
 ```toml
@@ -158,5 +226,5 @@ session_file = "~/.config/wig/rg_search.json"
 
 ## License
 
-MIT License. Feel free to use and modify for your workflows!
+MIT License. Feel free to use and customize for your workflows!
 

@@ -160,7 +160,7 @@ func checkHealth() {
 		rgPath, _ := exec.LookPath("rg")
 		out, _ := exec.Command("rg", "--version").Output()
 		ver := strings.Split(string(out), "\n")[0]
-		fmt.Printf("  ✅ \033[1;32mripgrep (rg)\033[0m: %s (\033[90m%s\033[0m)\n", ver, rgPath)
+		fmt.Printf("  ✅ \033[1;32mripgrep (rg)\033[0m: %s (\033[90m%s\033[0m)\n", ver, shortenHome(rgPath))
 	} else {
 		fmt.Println("  ❌ \033[1;31mripgrep (rg)\033[0m: NOT FOUND (Required for searching)")
 	}
@@ -168,7 +168,7 @@ func checkHealth() {
 	// 2. Check fzf - optional
 	if hasExecutable("fzf") {
 		fzfPath, _ := exec.LookPath("fzf")
-		fmt.Printf("  ✅ \033[1;32mfzf\033[0m: Found (\033[90m%s\033[0m)\n", fzfPath)
+		fmt.Printf("  ✅ \033[1;32mfzf\033[0m: Found (\033[90m%s\033[0m)\n", shortenHome(fzfPath))
 	} else {
 		fmt.Println("  ⚠️  \033[1;33mfzf\033[0m: NOT FOUND (Fuzzy history selection will use fallback numbered prompt)")
 	}
@@ -176,7 +176,7 @@ func checkHealth() {
 	// 3. Check rgr (repgrep) - optional for 'r' key
 	if hasExecutable("rgr") {
 		rgrPath, _ := exec.LookPath("rgr")
-		fmt.Printf("  ✅ \033[1;32mrgr (repgrep)\033[0m: Found (\033[90m%s\033[0m)\n", rgrPath)
+		fmt.Printf("  ✅ \033[1;32mrgr (repgrep)\033[0m: Found (\033[90m%s\033[0m)\n", shortenHome(rgrPath))
 	} else {
 		fmt.Println("  ⚠️  \033[1;33mrgr (repgrep)\033[0m: NOT FOUND ('r' find & replace action will be hidden)")
 	}
@@ -186,7 +186,7 @@ func checkHealth() {
 	if editor != "" {
 		if hasExecutable(editor) {
 			edPath, _ := exec.LookPath(editor)
-			fmt.Printf("  ✅ \033[1;32m$EDITOR (%s)\033[0m: Found (\033[90m%s\033[0m)\n", editor, edPath)
+			fmt.Printf("  ✅ \033[1;32m$EDITOR (%s)\033[0m: Found (\033[90m%s\033[0m)\n", editor, shortenHome(edPath))
 		} else {
 			fmt.Printf("  ❌ \033[1;31m$EDITOR (%s)\033[0m: Configured but binary not found in $PATH\n", editor)
 		}
@@ -196,7 +196,7 @@ func checkHealth() {
 		for _, ed := range []string{"wig", "nvim", "vim"} {
 			if hasExecutable(ed) {
 				edPath, _ := exec.LookPath(ed)
-				fmt.Printf("  ✅ \033[1;32mEditor fallback (%s)\033[0m: Found (\033[90m%s\033[0m)\n", ed, edPath)
+				fmt.Printf("  ✅ \033[1;32mEditor fallback (%s)\033[0m: Found (\033[90m%s\033[0m)\n", ed, shortenHome(edPath))
 				foundFallback = true
 				break
 			}
