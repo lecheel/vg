@@ -131,12 +131,85 @@ func getWigSessionPath() string {
 	return filepath.Join(dir, "rg_search.json")
 }
 
+func shortenHome(path string) string {
+	home, err := os.UserHomeDir()
+	if err == nil && home != "" {
+		if path == home {
+			return "~"
+		}
+		if strings.HasPrefix(path, home+string(filepath.Separator)) {
+			return "~" + path[len(home):]
+		}
+	}
+	return path
+}
+
 func getHistoryPath() string {
 	return filepath.Join(getConfigDir(), "history.json")
 }
 
 func getConfigFilePath() string {
 	return filepath.Join(getConfigDir(), "config.toml")
+}
+
+func checkHealth() {
+	fmt.Println("\033[1;36m=== vgrep Health Check ===\033[0m\n")
+
+	// 1. Check Ripgrep (rg) - required
+	if hasExecutable("rg") {
+		rgPath, _ := exec.LookPath("rg")
+		out, _ := exec.Command("rg", "--version").Output()
+		ver := strings.Split(string(out), "\n")[0]
+		fmt.Printf("  ✅ \033[1;32mripgrep (rg)\033[0m: %s (\033[90m%s\033[0m)\n", ver, rgPath)
+	} else {
+		fmt.Println("  ❌ \033[1;31mripgrep (rg)\033[0m: NOT FOUND (Required for searching)")
+	}
+
+	// 2. Check fzf - optional
+	if hasExecutable("fzf") {
+		fzfPath, _ := exec.LookPath("fzf")
+		fmt.Printf("  ✅ \033[1;32mfzf\033[0m: Found (\033[90m%s\033[0m)\n", fzfPath)
+	} else {
+		fmt.Println("  ⚠️  \033[1;33mfzf\033[0m: NOT FOUND (Fuzzy history selection will use fallback numbered prompt)")
+	}
+
+	// 3. Check rgr (repgrep) - optional for 'r' key
+	if hasExecutable("rgr") {
+		rgrPath, _ := exec.LookPath("rgr")
+		fmt.Printf("  ✅ \033[1;32mrgr (repgrep)\033[0m: Found (\033[90m%s\033[0m)\n", rgrPath)
+	} else {
+		fmt.Println("  ⚠️  \033[1;33mrgr (repgrep)\033[0m: NOT FOUND ('r' find & replace action will be hidden)")
+	}
+
+	// 4. Check Editor
+	editor := os.Getenv("EDITOR")
+	if editor != "" {
+		if hasExecutable(editor) {
+			edPath, _ := exec.LookPath(editor)
+			fmt.Printf("  ✅ \033[1;32m$EDITOR (%s)\033[0m: Found (\033[90m%s\033[0m)\n", editor, edPath)
+		} else {
+			fmt.Printf("  ❌ \033[1;31m$EDITOR (%s)\033[0m: Configured but binary not found in $PATH\n", editor)
+		}
+	} else {
+		// Fallback check
+		foundFallback := false
+		for _, ed := range []string{"wig", "nvim", "vim"} {
+			if hasExecutable(ed) {
+				edPath, _ := exec.LookPath(ed)
+				fmt.Printf("  ✅ \033[1;32mEditor fallback (%s)\033[0m: Found (\033[90m%s\033[0m)\n", ed, edPath)
+				foundFallback = true
+				break
+			}
+		}
+		if !foundFallback {
+			fmt.Println("  ❌ \033[1;31mEditor\033[0m: No editor found (set $EDITOR or install wig/nvim/vim)")
+		}
+	}
+
+	// 5. Check paths
+	fmt.Printf("\n  📁 \033[1;34mConfig path\033[0m:  %s\n", shortenHome(getConfigFilePath()))
+	fmt.Printf("  📁 \033[1;34mHistory path\033[0m: %s\n", shortenHome(getHistoryPath()))
+	fmt.Printf("  📁 \033[1;34mWig session\033[0m:  %s\n\n", shortenHome(getWigSessionPath()))
 }
 
 func editConfig() error {
@@ -547,7 +620,7 @@ func renderTUI(entries []displayEntry, cursor int, filterText string, searchPatt
 
 		if entry.isHeader {
 			buf.WriteString(fmt.Sprintf("%s%s %s\033[1;36m📁 %s\033[0m%s\033[K\r\n",
-				cursorPrefix, relNumStr, bgStyle, entry.filePath, resetStyle))
+				cursorPrefix, relNumStr, bgStyle, shortenHome(entry.filePath), resetStyle))
 		} else {
 			cleanText := strings.TrimRight(entry.matchItem.Text, "\r\n")
 			// Highlight search pattern in text
@@ -564,8 +637,12 @@ func renderTUI(entries []displayEntry, cursor int, filterText string, searchPatt
 		buf.WriteString("~\033[K\r\n")
 	}
 
-	// Footer Help / Vim motion bar
-	buf.WriteString("\033[K\r\n\033[90m[j/k, <num>j/k, J/K (files), g/G, / (filter), r (rgr replace), Enter/o (open), q (quit)]\033[0m\033[K")
+	// Footer Help / Vim motion bar (hide 'r' if rgr is not found)
+	if hasExecutable("rgr") {
+		buf.WriteString("\033[K\r\n\033[90m[j/k, <num>j/k, J/K (files), g/G, / (filter), r (rgr replace), Enter/o (open), q (quit)]\033[0m\033[K")
+	} else {
+		buf.WriteString("\033[K\r\n\033[90m[j/k, <num>j/k, J/K (files), g/G, / (filter), Enter/o (open), q (quit)]\033[0m\033[K")
+	}
 
 	os.Stdout.Write(buf.Bytes())
 }
@@ -703,16 +780,18 @@ func runTUI(results []WigResultItem, searchPattern string, fileTypes []string, i
 			exitAlternateScreen()
 			return
 
-		case 'r': // Launch rgr (find & replace) on searchPattern
-			restoreTerminal()
-			exitAlternateScreen()
+		case 'r': // Launch rgr (find & replace) on searchPattern (only active if rgr exists)
+			if hasExecutable("rgr") {
+				restoreTerminal()
+				exitAlternateScreen()
 
-			_ = runReplacer(searchPattern, fileTypes, ignoreCase)
+				_ = runReplacer(searchPattern, fileTypes, ignoreCase)
 
-			// Resume TUI
-			enterAlternateScreen()
-			_, _ = setRawTerminal()
-			reader = bufio.NewReader(os.Stdin)
+				// Resume TUI
+				enterAlternateScreen()
+				_, _ = setRawTerminal()
+				reader = bufio.NewReader(os.Stdin)
+			}
 			continue
 
 		case '/': // Enter filter search mode
@@ -888,6 +967,7 @@ func main() {
 	var (
 		viewFlag       bool
 		editFlag       bool
+		healthFlag     bool
 		ignoreCaseFlag bool
 		fzfFlag        bool
 		initFlag       bool
@@ -903,6 +983,7 @@ func main() {
 	flag.BoolVar(&viewFlag, "view", false, "View last search results stored in wig session")
 	flag.BoolVar(&editFlag, "e", false, "")
 	flag.BoolVar(&editFlag, "edit", false, "Edit config.toml in $EDITOR")
+	flag.BoolVar(&healthFlag, "health", false, "Check installed tools and environment health")
 	flag.BoolVar(&ignoreCaseFlag, "i", false, "")
 	flag.BoolVar(&ignoreCaseFlag, "ignore-case", false, "Case-insensitive search")
 	flag.BoolVar(&fzfFlag, "fzf", false, "Force fzf picker")
@@ -922,6 +1003,12 @@ func main() {
 		os.Remove(getHistoryPath())
 		os.Remove(getWigSessionPath())
 		fmt.Println("Cleared search history and wig session cache.")
+		return
+	}
+
+	// Health check (`--health`)
+	if healthFlag {
+		checkHealth()
 		return
 	}
 
