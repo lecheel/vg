@@ -399,7 +399,7 @@ func restoreTerminal() {
 	fmt.Print("\033[?25h")
 }
 
-func renderTUI(entries []displayEntry, cursor int, filterText string, searchPattern string) {
+func renderTUI(entries []displayEntry, cursor int, filterText string, searchPattern string, inFilterMode bool) {
 	termHeight := getTerminalHeight()
 	maxRows := termHeight - 4 // reserve space for header & prompt
 	if maxRows < 5 {
@@ -420,8 +420,14 @@ func renderTUI(entries []displayEntry, cursor int, filterText string, searchPatt
 	// Clear screen & reset cursor position
 	buf.WriteString("\033[H\033[2J")
 
+	// Filter string with red cursor indicator when typing in filter mode
+	filterDisplay := filterText
+	if inFilterMode {
+		filterDisplay = fmt.Sprintf("%s\033[41;1;37m \033[0m", filterText)
+	}
+
 	// Title / Filter Header
-	buf.WriteString(fmt.Sprintf("\033[1;30;46m vgrep \033[0m \033[1;36mfilter:\033[0m %s\033[K\r\n", filterText))
+	buf.WriteString(fmt.Sprintf("\033[1;30;46m vgrep \033[0m \033[1;36mfilter:\033[0m %s\033[K\r\n", filterDisplay))
 
 	for i := startIdx; i < endIdx; i++ {
 		entry := entries[i]
@@ -547,7 +553,7 @@ func runTUI(results []WigResultItem, searchPattern string) {
 	inFilterMode := false
 
 	for {
-		renderTUI(entries, cursor, filter, searchPattern)
+		renderTUI(entries, cursor, filter, searchPattern, inFilterMode)
 
 		b, err := reader.ReadByte()
 		if err != nil {
@@ -602,6 +608,8 @@ func runTUI(results []WigResultItem, searchPattern string) {
 
 		switch b {
 		case 'q', 3: // 'q' or Ctrl+C to quit
+			restoreTerminal()
+			fmt.Println()
 			return
 
 		case '/': // Enter filter search mode
