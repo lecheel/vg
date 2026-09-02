@@ -38,9 +38,9 @@ type RgMatchData struct {
 	Lines struct {
 		Text string `json:"text"`
 	} `json:"lines"`
-	LineNumber   int `json:"line_number"`
-	AbsoluteOff  int `json:"absolute_offset"`
-	Submatches   []struct {
+	LineNumber  int `json:"line_number"`
+	AbsoluteOff int `json:"absolute_offset"`
+	Submatches  []struct {
 		Match struct {
 			Text string `json:"text"`
 		} `json:"match"`
@@ -353,6 +353,356 @@ func hasExecutable(name string) bool {
 	return err == nil
 }
 
+// --- Interactive TUI with Relative Line Numbers & Vim Motions ---
+
+type displayEntry struct {
+	isHeader    bool
+	filePath    string
+	resultIdx   int // 0-based index in results, only valid if !isHeader
+	matchItem   WigResultItem
+	displayNum  int // 1-based match index for [n]
+	lineInGroup int // 1-based index within the file
+}
+
+type fileGroup struct {
+	filePath   string
+	entryIndex int // index in displayEntries
+}
+
+func getTerminalHeight() int {
+	cmd := exec.Command("stty", "size")
+	cmd.Stdin = os.Stdin
+	out, err := cmd.Output()
+	if err == nil {
+		parts := strings.Fields(string(out))
+		if len(parts) >= 1 {
+			if h, err := strconv.Atoi(parts[0]); err == nil && h > 0 {
+				return h
+			}
+		}
+	}
+	return 24
+}
+
+func setRawTerminal() (*exec.Cmd, error) {
+	// Disable echo and canonical mode
+	rawCmd := exec.Command("stty", "raw", "-echo")
+	rawCmd.Stdin = os.Stdin
+	return rawCmd, rawCmd.Run()
+}
+
+func restoreTerminal() {
+	cookedCmd := exec.Command("stty", "-raw", "echo")
+	cookedCmd.Stdin = os.Stdin
+	_ = cookedCmd.Run()
+	// Show cursor
+	fmt.Print("\033[?25h")
+}
+
+func renderTUI(entries []displayEntry, cursor int, filterText string, searchPattern string) {
+	termHeight := getTerminalHeight()
+	maxRows := termHeight - 4 // reserve space for header & prompt
+	if maxRows < 5 {
+		maxRows = 5
+	}
+
+	// Calculate scroll viewport window
+	startIdx := 0
+	if cursor >= maxRows {
+		startIdx = cursor - maxRows + 1
+	}
+	endIdx := startIdx + maxRows
+	if endIdx > len(entries) {
+		endIdx = len(entries)
+	}
+
+	var buf bytes.Buffer
+	// Clear screen & reset cursor position
+	buf.WriteString("\033[H\033[2J")
+
+	// Title / Filter Header
+	buf.WriteString(fmt.Sprintf("\033[1;30;46m vgrep \033[0m \033[1;36mfilter:\033[0m %s\033[K\r\n", filterText))
+
+	for i := startIdx; i < endIdx; i++ {
+		entry := entries[i]
+		relNum := i - cursor
+		if relNum < 0 {
+			relNum = -relNum
+		}
+
+		// Cursor highlight indicator
+		cursorPrefix := "  "
+		bgStyle := ""
+		resetStyle := "\033[0m"
+		if i == cursor {
+			cursorPrefix = "\033[1;32m> \033[0m"
+			bgStyle = "\033[48;5;236m"
+		}
+
+		relNumStr := fmt.Sprintf("\033[90m%2d\033[0m", relNum)
+		if i == cursor {
+			relNumStr = "\033[1;33m 0\033[0m"
+		}
+
+		if entry.isHeader {
+			buf.WriteString(fmt.Sprintf("%s%s %s\033[1;36m📁 %s\033[0m%s\033[K\r\n",
+				cursorPrefix, relNumStr, bgStyle, entry.filePath, resetStyle))
+		} else {
+			cleanText := strings.TrimRight(entry.matchItem.Text, "\r\n")
+			// Highlight search pattern in text
+			if searchPattern != "" {
+				cleanText = strings.ReplaceAll(cleanText, searchPattern, fmt.Sprintf("\033[1;31m%s\033[0m%s", searchPattern, bgStyle))
+			}
+			buf.WriteString(fmt.Sprintf("%s%s %s  \033[1;32m[%d]\033[0m \033[33m%4d:\033[0m %s%s\033[K\r\n",
+				cursorPrefix, relNumStr, bgStyle, entry.displayNum, entry.matchItem.Line, cleanText, resetStyle))
+		}
+	}
+
+	// Fill remaining blank rows if any
+	for i := endIdx - startIdx; i < maxRows; i++ {
+		buf.WriteString("~\033[K\r\n")
+	}
+
+	// Footer Help / Vim motion bar
+	buf.WriteString("\033[K\r\n\033[90m[j/k, <num>j/k, J/K (files), gg/G, / (filter), Enter/o (open), q (quit)]\033[0m\033[K")
+
+	os.Stdout.Write(buf.Bytes())
+}
+
+func runTUI(results []WigResultItem, searchPattern string) {
+	if len(results) == 0 {
+		fmt.Printf("No matches found for %q\n", searchPattern)
+		return
+	}
+
+	// Prepare data entries
+	buildEntries := func(filter string) ([]displayEntry, []fileGroup) {
+		var entries []displayEntry
+		var groups []fileGroup
+		lastFile := ""
+		groupCount := 0
+
+		filterLower := strings.ToLower(filter)
+
+		for i, r := range results {
+			if filterLower != "" {
+				matched := strings.Contains(strings.ToLower(r.FilePath), filterLower) ||
+					strings.Contains(strings.ToLower(r.Text), filterLower)
+				if !matched {
+					continue
+				}
+			}
+
+			if lastFile != r.FilePath {
+				lastFile = r.FilePath
+				groups = append(groups, fileGroup{
+					filePath:   r.FilePath,
+					entryIndex: len(entries),
+				})
+				entries = append(entries, displayEntry{
+					isHeader: true,
+					filePath: r.FilePath,
+				})
+				groupCount = 0
+			}
+
+			groupCount++
+			entries = append(entries, displayEntry{
+				isHeader:    false,
+				filePath:    r.FilePath,
+				resultIdx:   i,
+				matchItem:   r,
+				displayNum:  i + 1,
+				lineInGroup: groupCount,
+			})
+		}
+		return entries, groups
+	}
+
+	filter := ""
+	entries, groups := buildEntries(filter)
+	if len(entries) == 0 {
+		fmt.Printf("No matches for filter %q\n", filter)
+		return
+	}
+
+	cursor := 0
+	// Position cursor at first match if entry 0 is a header
+	if len(entries) > 1 && entries[0].isHeader {
+		cursor = 1
+	}
+
+	_, err := setRawTerminal()
+	if err != nil {
+		fmt.Println("Failed to initialize raw terminal UI.")
+		return
+	}
+	defer restoreTerminal()
+
+	// Hide cursor during navigation
+	fmt.Print("\033[?25l")
+
+	reader := bufio.NewReader(os.Stdin)
+	var numBuffer string
+	inFilterMode := false
+
+	for {
+		renderTUI(entries, cursor, filter, searchPattern)
+
+		b, err := reader.ReadByte()
+		if err != nil {
+			break
+		}
+
+		// --- Filter Editing Mode (activated with /) ---
+		if inFilterMode {
+			if b == '\r' || b == '\n' || b == 27 { // Enter or Esc exits filter mode
+				inFilterMode = false
+			} else if b == 127 || b == 8 { // Backspace
+				if len(filter) > 0 {
+					filter = filter[:len(filter)-1]
+					entries, groups = buildEntries(filter)
+					if cursor >= len(entries) {
+						cursor = len(entries) - 1
+					}
+					if cursor < 0 {
+						cursor = 0
+					}
+				}
+			} else if b >= 32 && b <= 126 { // Normal typing
+				filter += string(b)
+				entries, groups = buildEntries(filter)
+				if cursor >= len(entries) {
+					cursor = len(entries) - 1
+				}
+				if cursor < 0 {
+					cursor = 0
+				}
+			}
+			continue
+		}
+
+		// --- Normal Vim Motions Mode ---
+
+		// 1. Handle Count prefix (e.g., 3j, 12k)
+		if b >= '0' && b <= '9' {
+			if !(len(numBuffer) == 0 && b == '0') { // prevent leading 0
+				numBuffer += string(b)
+				continue
+			}
+		}
+
+		count := 1
+		if len(numBuffer) > 0 {
+			if c, err := strconv.Atoi(numBuffer); err == nil && c > 0 {
+				count = c
+			}
+			numBuffer = ""
+		}
+
+		switch b {
+		case 'q', 3: // 'q' or Ctrl+C to quit
+			return
+
+		case '/': // Enter filter search mode
+			inFilterMode = true
+
+		case 'j': // Move down by count
+			cursor += count
+			if cursor >= len(entries) {
+				cursor = len(entries) - 1
+			}
+
+		case 'k': // Move up by count
+			cursor -= count
+			if cursor < 0 {
+				cursor = 0
+			}
+
+		case 'J': // Next file header (Shift+J)
+			for i := 0; i < count; i++ {
+				found := false
+				for _, g := range groups {
+					if g.entryIndex > cursor {
+						cursor = g.entryIndex
+						found = true
+						break
+					}
+				}
+				if !found && len(groups) > 0 {
+					cursor = groups[len(groups)-1].entryIndex
+				}
+			}
+
+		case 'K': // Prev file header (Shift+K)
+			for i := 0; i < count; i++ {
+				found := false
+				for idx := len(groups) - 1; idx >= 0; idx-- {
+					if groups[idx].entryIndex < cursor {
+						cursor = groups[idx].entryIndex
+						found = true
+						break
+					}
+				}
+				if !found && len(groups) > 0 {
+					cursor = groups[0].entryIndex
+				}
+			}
+
+		case 'g': // 'gg' to top
+			if next, _ := reader.ReadByte(); next == 'g' {
+				cursor = 0
+				if len(entries) > 1 && entries[0].isHeader {
+					cursor = 1
+				}
+			}
+
+		case 'G': // Bottom of list
+			if len(entries) > 0 {
+				cursor = len(entries) - 1
+			}
+
+		case '\r', '\n', 'o': // Open selection in editor
+			if len(entries) == 0 || cursor >= len(entries) {
+				continue
+			}
+			target := entries[cursor]
+			restoreTerminal()
+
+			if target.isHeader {
+				// Open header file at line 1
+				openEditor(WigResultItem{
+					FilePath: target.filePath,
+					Line:     1,
+				})
+			} else {
+				openEditor(target.matchItem)
+			}
+			return
+
+		case 27: // Handle ANSI Arrow Keys
+			if reader.Buffered() >= 2 {
+				b1, _ := reader.ReadByte()
+				b2, _ := reader.ReadByte()
+				if b1 == '[' {
+					switch b2 {
+					case 'A': // Up
+						cursor -= count
+						if cursor < 0 {
+							cursor = 0
+						}
+					case 'B': // Down
+						cursor += count
+						if cursor >= len(entries) {
+							cursor = len(entries) - 1
+						}
+					}
+				}
+			}
+		}
+	}
+}
+
 // --- CLI Display & Selection ---
 
 func presentMatches(results []WigResultItem, pattern string, useFzf bool) {
@@ -368,8 +718,8 @@ func presentMatches(results []WigResultItem, pattern string, useFzf bool) {
 		return
 	}
 
-	// Rule 2: FZF selection if requested or if results are large (>50)
-	if (useFzf || len(results) > 50) && hasExecutable("fzf") {
+	// Rule 2: FZF selection if explicitly forced
+	if useFzf && hasExecutable("fzf") {
 		var lines []string
 		for i, r := range results {
 			lines = append(lines, fmt.Sprintf("%03d | %s:%d:%d | %s", i+1, r.FilePath, r.Line, r.Char, strings.TrimSpace(r.Text)))
@@ -393,25 +743,8 @@ func presentMatches(results []WigResultItem, pattern string, useFzf bool) {
 		return
 	}
 
-	// Rule 3: Formatted grouped terminal list
-	fmt.Printf("\n\033[1;32mFound %d matches:\033[0m\n", len(results))
-	lastFile := ""
-	for i, r := range results {
-		if lastFile != r.FilePath {
-			fmt.Printf("\n\033[1;36m📁 %s\033[0m\n", r.FilePath)
-			lastFile = r.FilePath
-		}
-		fmt.Printf("  \033[1;32m[%d]\033[0m \033[33m%4d:\033[0m %s", i+1, r.Line, r.Text)
-	}
-
-	fmt.Printf("\n\033[1;33mSelect an item to open (1-%d), or press Enter to exit:\033[0m\n\033[1;36mvgrep>\033[0m ", len(results))
-	reader := bufio.NewReader(os.Stdin)
-	input, _ := reader.ReadString('\n')
-	input = strings.TrimSpace(input)
-
-	if idx, err := strconv.Atoi(input); err == nil && idx > 0 && idx <= len(results) {
-		openEditor(results[idx-1])
-	}
+	// Rule 3: Interactive Relative TUI with Vim Motions (3j/3k, J/K file jump, / filter)
+	runTUI(results, pattern)
 }
 
 // --- Main Program ---
@@ -479,7 +812,11 @@ func main() {
 	// 3. Shorthand pattern conversion (e.g. "myFunc_fn" -> "func myFunc" / "fn myFunc")
 	if strings.HasSuffix(pattern, "_fn") {
 		base := strings.TrimSuffix(pattern, "_fn")
-		if goFlag || _, err := os.Stat(filepath.Join(projectRoot, "go.mod")); err == nil {
+		isGoProject := false
+		if _, err := os.Stat(filepath.Join(projectRoot, "go.mod")); err == nil {
+			isGoProject = true
+		}
+		if goFlag || isGoProject {
 			pattern = "func " + base
 		} else {
 			pattern = "fn " + base
