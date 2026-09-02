@@ -703,12 +703,10 @@ func runTUI(results []WigResultItem, searchPattern string) {
 				}
 			}
 
-		case 'g': // 'gg' to top
-			if next, _ := reader.ReadByte(); next == 'g' {
-				cursor = 0
-				if len(entries) > 1 && entries[0].isHeader {
-					cursor = 1
-				}
+		case 'g': // Jump to top
+			cursor = 0
+			if len(entries) > 1 && entries[0].isHeader {
+				cursor = 1
 			}
 
 		case 'G': // Bottom of list

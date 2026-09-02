@@ -1,0 +1,162 @@
+# vgrep
+
+A blazing-fast, project-aware interactive CLI search tool built on top of [ripgrep (`rg`)](https://github.com/BurntSushi/ripgrep). 
+
+`vgrep` bridges the gap between searching code and editing it by providing **Vim-motion navigation**, **scoped project history recall**, and direct integration with editors like **`wig`**, **`nvim`**, and **`vim`**.
+
+---
+
+## Features
+
+- ⚡ **Powered by `ripgrep`**: Instant search with automatic `.gitignore` parsing, pruning of build/target directories, and multi-threaded traversal.
+- 🎯 **Vim-Motion TUI**: Navigate search results using relative line numbers, counts (e.g. `3j`, `5k`), file jumps (`J`/`K`), live filtering (`/`), and return right back to your search list after `:q` in your editor.
+- 🧠 **Project-Scoped History**: Running `vgrep` without arguments remembers and recalls past search patterns specific to the current Git repository or workspace.
+- 📂 **Auto-Detection & Quick Shorthands**: 
+  - Automatically identifies projects (`go.mod`, `Cargo.toml`, `pyproject.toml`, etc.).
+  - Converts shorthand patterns (e.g. `myHandler_fn` $\rightarrow$ `func myHandler` or `fn myHandler`).
+- ⚡ **Auto-Jump on Single Match**: Directly opens the editor if the search yields exactly one result.
+- 🔄 **`wig` Quickfix Session Synchronization**: Automatically exports search matches to `~/.config/wig/rg_search.json` for editor session sharing.
+- 📜 **Review Mode (`-v` / `--view`)**: Revisit and interact with your previous search session without re-scanning the codebase.
+
+---
+
+## Installation
+
+### Prerequisites
+- [ripgrep (`rg`)](https://github.com/BurntSushi/ripgrep) installed and available in `$PATH`.
+- (Optional) [fzf](https://github.com/junegunn/fzf) for fuzzy history selection.
+- An editor like `wig`, `nvim`, or `vim`.
+
+### Build from Source
+```bash
+git clone https://github.com/your-username/vgrep.git
+cd vgrep
+go build -o vgrep main.go
+sudo mv vgrep /usr/local/bin/
+```
+
+---
+
+## Usage
+
+### 1. Basic Search
+Search across the entire project repository:
+```bash
+vgrep SearchPattern
+```
+*If only **one match** is found, `vgrep` jumps straight into `$EDITOR +<line>`.*
+
+### 2. Language-Specific Filtering
+Filter matches by file extensions:
+```bash
+vgrep --go MyStruct      # Go files (*.go)
+vgrep --rs MyTrait       # Rust files (*.rs)
+vgrep --py def           # Python files (*.py)
+vgrep --cc MyClass       # C/C++ files (*.c, *.cpp, *.h, *.hpp)
+vgrep --dart Widget      # Dart files (*.dart)
+vgrep --swift View       # Swift files (*.swift)
+```
+
+### 3. Function Search Shorthand
+Append `_fn` to quickly search for function definitions:
+```bash
+vgrep handleRequest_fn
+# In Go projects: converts to `func handleRequest`
+# In Rust projects: converts to `fn handleRequest`
+```
+
+### 4. Interactive Project History
+Run `vgrep` without arguments inside any repository to view and select from recent search queries:
+```bash
+vgrep
+```
+*Presents an interactive `fzf` or numbered list ranked by frequency and relative recency (e.g. `just now`, `10m ago`, `2d ago`).*
+
+### 5. Review Previous Search Results
+Re-open the last search results saved in the session cache without running `rg` again:
+```bash
+vgrep -v
+# or
+vgrep --view
+```
+
+### 6. Edit Configuration
+Open `~/.config/vgrep/config.toml` in your `$EDITOR`:
+```bash
+vgrep -e
+```
+
+### 7. Clear History & Cache
+Wipe project history and cached session files:
+```bash
+vgrep --init
+```
+
+---
+
+## TUI Keyboard Shortcuts & Vim Motions
+
+When multiple matches are found, `vgrep` enters the interactive alternate-screen TUI:
+
+```text
+ vgrep  filter: 
+>  0 📁 /path/to/project/main.go
+   1   [1]   12: func initialize() {
+   2   [2]   48: func handleRequest() {
+   3 📁 /path/to/project/router.go
+   4   [3]    8: func registerRoutes() {
+
+[j/k, <num>j/k, J/K (files), gg/G, / (filter), Enter/o (open), q (quit)]
+```
+
+| Key | Action |
+|---|---|
+| `j` / `k` | Move cursor down / up by 1 row |
+| `<num>j` / `<num>k` | Jump down / up by `<num>` rows (e.g. `3j`, `5k`) |
+| `J` (`Shift+j`) | Jump to the **next file header** |
+| `K` (`Shift+k`) | Jump to the **previous file header** |
+| `g` | Jump to the top |
+| `G` | Jump to the bottom |
+| `/` | Enter live filter mode (shows red cursor; press `Enter`/`Esc` to exit filter) |
+| `<Enter>` / `o` | Open file at line in `$EDITOR` (returns to TUI after `:q`) |
+| `q` / `Ctrl+c` | Exit `vgrep` and restore original terminal screen |
+
+---
+
+## Editor Configuration
+
+### Setting Default Editor
+`vgrep` respects the `$EDITOR` environment variable. If unset, it automatically tries `wig` $\rightarrow$ `nvim` $\rightarrow$ `vim`.
+
+Set your preferred editor in your shell profile (`~/.bashrc` or `~/.zshrc`):
+```bash
+export EDITOR="wig"
+# or
+export EDITOR="nvim"
+```
+
+### `wig` Shared Session Integration
+Every search written by `vgrep` is saved to:
+```text
+~/.config/wig/rg_search.json
+```
+This enables `wig` to load the exact search result list into its quickfix/search list buffer for in-editor navigation (`:cnext` / `:cprev`).
+
+---
+
+## Configuration File (`~/.config/vgrep/config.toml`)
+
+```toml
+# Default editor command
+editor = "wig"
+
+# Custom path to shared search session JSON
+session_file = "~/.config/wig/rg_search.json"
+```
+
+---
+
+## License
+
+MIT License. Feel free to use and modify for your workflows!
+
