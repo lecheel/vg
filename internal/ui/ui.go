@@ -610,6 +610,18 @@ func RunTUI(results []model.WigResultItem, searchPattern string, fileTypes []str
 				}
 			}
 			continue
+		case 'r': // Launch external rgr replacer if available
+			if config.HasExecutable("rgr") {
+				RestoreTerminal()
+				ExitAlternateScreen()
+
+				_ = replace.RunReplacer(searchPattern, fileTypes, ignoreCase)
+
+				EnterAlternateScreen()
+				_, _ = SetRawTerminal()
+				reader = bufio.NewReader(os.Stdin)
+			}
+			continue
 
 		case 'R', '\t':
 			inReplaceMode = true
