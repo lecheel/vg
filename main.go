@@ -760,49 +760,20 @@ func replacePattern(line, pattern, replacement string, ignoreCase bool) string {
 	return buf.String()
 }
 
-func runWgrepReplace(results []WigResultItem, excluded map[int]bool, pattern string, ignoreCase bool) ([]WigResultItem, error) {
+func applyReplacement(results []WigResultItem, excluded map[int]bool, pattern, replacement string, ignoreCase bool) (int, int, error) {
 	var targetIndices []int
 	for i := range results {
 		if !excluded[i] {
 			targetIndices = append(targetIndices, i)
 		}
 	}
-
-	reader := bufio.NewReader(os.Stdin)
-
 	if len(targetIndices) == 0 {
-		fmt.Printf("\n\033[1;33mNo matches selected for replacement (all %d items are marked as skipped).\033[0m\n", len(results))
-		fmt.Print("\033[90mPress Enter to return to vgrep...\033[0m")
-		_, _ = reader.ReadString('\n')
-		return results, nil
+		return 0, 0, nil
 	}
 
-	// Group targets by file path
 	fileGroups := make(map[string][]int)
 	for _, idx := range targetIndices {
 		fileGroups[results[idx].FilePath] = append(fileGroups[results[idx].FilePath], idx)
-	}
-
-	fmt.Printf("\n\033[1;30;46m VGREP REPLACE (wgrep) \033[0m\n")
-	fmt.Printf("Pattern:   \033[1;31m%s\033[0m\n", pattern)
-	fmt.Printf("Selected:  \033[1;32m%d matches\033[0m across %d files (\033[1;33m%d skipped\033[0m)\n\n",
-		len(targetIndices), len(fileGroups), len(excluded))
-
-	fmt.Print("\033[1;36mEnter replacement string:\033[0m ")
-	replacement, err := reader.ReadString('\n')
-	if err != nil {
-		return results, err
-	}
-	replacement = strings.TrimRight(replacement, "\r\n")
-
-	fmt.Printf("\nApply replacement \033[1;31m%q\033[0m -> \033[1;32m%q\033[0m on %d matches? [y/N]: ",
-		pattern, replacement, len(targetIndices))
-	confirm, _ := reader.ReadString('\n')
-	confirm = strings.TrimSpace(strings.ToLower(confirm))
-	if confirm != "y" && confirm != "yes" {
-		fmt.Println("\033[90mReplacement canceled.\033[0m")
-		time.Sleep(500 * time.Millisecond)
-		return results, nil
 	}
 
 	replacedCount := 0
@@ -811,7 +782,6 @@ func runWgrepReplace(results []WigResultItem, excluded map[int]bool, pattern str
 	for filePath, indices := range fileGroups {
 		data, err := os.ReadFile(filePath)
 		if err != nil {
-			fmt.Printf("  ❌ Error reading %s: %v\n", shortenHome(filePath), err)
 			continue
 		}
 
@@ -846,21 +816,14 @@ func runWgrepReplace(results []WigResultItem, excluded map[int]bool, pattern str
 				sep = "\r\n"
 			}
 			newContent := strings.Join(lines, sep)
-			if err := os.WriteFile(filePath, []byte(newContent), perm); err != nil {
-				fmt.Printf("  ❌ Error writing %s: %v\n", shortenHome(filePath), err)
-			} else {
+			if err := os.WriteFile(filePath, []byte(newContent), perm); err == nil {
 				filesModified++
 			}
 		}
 	}
 
 	_ = writeWigSession(results)
-
-	fmt.Printf("\n\033[1;32m✓ Successfully replaced %d occurrences in %d files.\033[0m\n", replacedCount, filesModified)
-	fmt.Print("\033[90mPress Enter to return to vgrep...\033[0m")
-	_, _ = reader.ReadString('\n')
-
-	return results, nil
+	return replacedCount, filesModified, nil
 }
 
 func renderTUI(
@@ -873,8 +836,11 @@ func renderTUI(
 	fileTypes []string,
 	ignoreCase bool,
 	inFilterMode bool,
+	inReplaceMode bool,
+	replaceText string,
 	numBuffer string,
 	excluded map[int]bool,
+	statusNotice string,
 ) {
 	termHeight, termWidth := getTerminalSize()
 	if termHeight < 5 {
@@ -884,14 +850,12 @@ func renderTUI(
 		termWidth = 20
 	}
 
-	// 1 row Title + 1 row StatusBar + 1 row CommandBar = 3 reserved rows
 	maxRows := termHeight - 3
 	if maxRows < 1 {
 		maxRows = 1
 	}
 
 	var buf bytes.Buffer
-	// Reposition cursor to top-left (no screen flicker)
 	buf.WriteString("\033[H")
 
 	// =========================================================================
@@ -922,23 +886,22 @@ func renderTUI(
 	}
 
 	matchCount := 0
-	skippedCount := 0
+	removedCount := 0
 	for _, e := range entries {
 		if !e.isHeader {
 			matchCount++
 			if excluded[e.resultIdx] {
-				skippedCount++
+				removedCount++
 			}
 		}
 	}
 	statsText := fmt.Sprintf("%d matches in %d files", matchCount, len(groups))
-	if skippedCount > 0 {
-		statsText = fmt.Sprintf("%d matches (%d skipped) in %d files", matchCount, skippedCount, len(groups))
+	if removedCount > 0 {
+		statsText = fmt.Sprintf("%d matches (%d removed) in %d files", matchCount, removedCount, len(groups))
 	}
 	titleRight := fmt.Sprintf("\033[90m%s\033[0m", statsText)
 	rightWidth := strDisplayWidth(statsText)
 
-	// Keep a safety margin of at least 2 columns to prevent edge-wrapping
 	maxTitleWidth := termWidth - 2
 	spaceCount := maxTitleWidth - leftWidth - rightWidth
 	if spaceCount > 0 {
@@ -952,6 +915,9 @@ func renderTUI(
 		numWidth = 2
 	}
 
+	// =========================================================================
+	// 2. MATCH ENTRIES VIEWPORT (Rows 2 to termHeight - 2)
+	// =========================================================================
 	for row := 0; row < maxRows; row++ {
 		entryIdx := viewportStart + row
 		if entryIdx >= len(entries) {
@@ -977,20 +943,19 @@ func renderTUI(
 			bgStyle = "\033[48;5;236m"
 		}
 
-		// Hybrid line numbering: relative distance for other lines, absolute 1-based line number for current line
 		relNumStr := fmt.Sprintf("\033[90m%*d\033[0m", numWidth, relNum)
 		if entryIdx == cursor {
 			relNumStr = fmt.Sprintf("\033[1;33m%*d\033[0m", numWidth, entryIdx+1)
 		}
 
 		if entry.isHeader {
-			allSkipped := true
+			allRemoved := true
 			matchInFile := false
 			for _, e := range entries {
 				if !e.isHeader && e.filePath == entry.filePath {
 					matchInFile = true
 					if !excluded[e.resultIdx] {
-						allSkipped = false
+						allRemoved = false
 						break
 					}
 				}
@@ -998,49 +963,53 @@ func renderTUI(
 
 			prefixWidth := numWidth + 6
 			maxPathLen := termWidth - prefixWidth - 2
-			if matchInFile && allSkipped {
-				maxPathLen -= 15 // space for "[all skipped]"
-			}
 			if maxPathLen < 10 {
 				maxPathLen = 10
 			}
 			displayPath := shortenHome(entry.filePath)
 			displayPath = truncateDisplayWidthStart(displayPath, maxPathLen)
 
-			if matchInFile && allSkipped {
-				buf.WriteString(fmt.Sprintf("%s%s %s\033[90m📁 %s [all skipped]\033[0m%s\033[K\r\n",
+			if matchInFile && allRemoved {
+				// Inline diff-style removed file header (dimmed & struck-through)
+				buf.WriteString(fmt.Sprintf("%s%s %s\033[31m-\033[90;9m 📁 %s\033[0m%s\033[K\r\n",
 					cursorPrefix, relNumStr, bgStyle, displayPath, resetStyle))
 			} else {
 				buf.WriteString(fmt.Sprintf("%s%s %s\033[1;36m📁 %s\033[0m%s\033[K\r\n",
 					cursorPrefix, relNumStr, bgStyle, displayPath, resetStyle))
 			}
 		} else {
-			isSkipped := excluded[entry.resultIdx]
+			isRemoved := excluded[entry.resultIdx]
 			cleanText := strings.ReplaceAll(entry.matchItem.Text, "\t", "    ")
 			cleanText = strings.TrimRight(cleanText, "\r\n")
 
 			prefixWidth := numWidth + 12
-			if isSkipped {
-				prefixWidth += 7 // space for "[skip] "
-			}
 			maxTextLen := termWidth - prefixWidth - 2
 			if maxTextLen < 10 {
 				maxTextLen = 10
 			}
 			cleanText = truncateDisplayWidthEnd(cleanText, maxTextLen)
 
-			if isSkipped {
-				// Dimmed text with [skip] badge
-				buf.WriteString(fmt.Sprintf("%s%s %s\033[90;31m[skip]\033[0m \033[90m%4d: %s\033[0m%s\033[K\r\n",
+			if isRemoved {
+				// Inline diff-style removed line: red minus '-' and struck-through dimmed text
+				buf.WriteString(fmt.Sprintf("%s%s %s\033[31m-%4d:\033[90;9m %s\033[0m%s\033[K\r\n",
 					cursorPrefix, relNumStr, bgStyle, entry.matchItem.Line, cleanText, resetStyle))
 			} else {
-				// Highlight search pattern
-				if searchPattern != "" {
-					cleanText = highlightText(cleanText, searchPattern, ignoreCase, "\033[1;31m", bgStyle)
-				}
-				// Highlight filter query
-				if filterText != "" {
-					cleanText = highlightText(cleanText, filterText, true, "\033[1;33;4m", bgStyle)
+				if inReplaceMode || replaceText != "" {
+					// Live replacement preview on original screen!
+					if replaceText == "" {
+						// Show place for replacement in bold yellow
+						cleanText = highlightText(cleanText, searchPattern, ignoreCase, "\033[1;30;43m", bgStyle)
+					} else {
+						// Live substitution preview in bright green pill
+						cleanText = replacePattern(cleanText, searchPattern, fmt.Sprintf("\033[1;30;42m%s\033[0m%s", replaceText, bgStyle), ignoreCase)
+					}
+				} else {
+					if searchPattern != "" {
+						cleanText = highlightText(cleanText, searchPattern, ignoreCase, "\033[1;31m", bgStyle)
+					}
+					if filterText != "" {
+						cleanText = highlightText(cleanText, filterText, true, "\033[1;33;4m", bgStyle)
+					}
 				}
 
 				buf.WriteString(fmt.Sprintf("%s%s %s  \033[33m%4d:\033[0m %s%s\033[K\r\n",
@@ -1057,6 +1026,12 @@ func renderTUI(
 	if inFilterMode {
 		modeBadge = "\033[1;30;43m FILTER \033[0;48;5;236;37m"
 		modeWidth = 8
+	} else if inReplaceMode {
+		modeBadge = "\033[1;30;45m REPLACE \033[0;48;5;236;37m"
+		modeWidth = 9
+	} else if replaceText != "" {
+		modeBadge = "\033[1;30;45m PREVIEW \033[0;48;5;236;37m"
+		modeWidth = 9
 	}
 
 	countBadge := ""
@@ -1067,16 +1042,20 @@ func renderTUI(
 	}
 
 	locStr := " No selection"
-	if len(entries) > 0 && cursor < len(entries) {
+	if statusNotice != "" {
+		locStr = fmt.Sprintf(" %s", statusNotice)
+	} else if len(entries) > 0 && cursor < len(entries) {
 		current := entries[cursor]
 		if current.isHeader {
 			locStr = fmt.Sprintf(" 📁 %s", shortenHome(current.filePath))
 		} else {
 			locStr = fmt.Sprintf(" 📁 %s:%d:%d", shortenHome(current.filePath), current.matchItem.Line, current.matchItem.Char+1)
+			if excluded[current.resultIdx] {
+				locStr += " \033[1;31m[REMOVED]\033[0;48;5;236;37m"
+			}
 		}
 	}
 
-	// Percentage position
 	pctStr := "[---]"
 	if len(entries) > 0 {
 		if len(entries) == 1 {
@@ -1099,7 +1078,6 @@ func renderTUI(
 	statusRight := fmt.Sprintf("%s %s", posStr, pctStr)
 	statusRightWidth := strDisplayWidth(statusRight)
 
-	// Keep a safety margin of at least 2 columns from the terminal edge to prevent wrapping
 	maxStatusWidth := termWidth - 2
 	availForLoc := maxStatusWidth - modeWidth - countWidth - statusRightWidth - 3
 	if availForLoc < 5 {
@@ -1116,17 +1094,21 @@ func renderTUI(
 		statusSpaces = 1
 	}
 
-	// Call \033[K while background color is still active to fill to margin, then reset before \r\n
 	buf.WriteString(fmt.Sprintf("\033[48;5;236;37m%s%s%s \033[K\033[0m\r\n",
 		statusLeft, strings.Repeat(" ", statusSpaces), statusRight))
 
 	// =========================================================================
-	// 4. COMMAND / HELP BAR (Row termHeight) - Note: NO trailing \r\n
+	// 4. COMMAND / HELP BAR (Row termHeight)
 	// =========================================================================
 	if inFilterMode {
 		buf.WriteString(fmt.Sprintf("\033[1;33mFILTER>\033[0m %s\033[41;1;37m \033[0m \033[90m(Enter/Esc: done, Backspace: del, Ctrl+U: clear)\033[0m\033[K", filterText))
+	} else if inReplaceMode {
+		buf.WriteString(fmt.Sprintf("\033[1;35mREPLACE>\033[0m %s\033[41;1;37m \033[0m \033[90m(Enter: apply, Tab: inspect list, Esc: cancel)\033[0m\033[K", replaceText))
+	} else if replaceText != "" {
+		helpText := "[Tab/R:edit replace  Enter:apply  SPC:toggle  a:all  Esc:clear  e/o:open  q:quit]"
+		buf.WriteString(fmt.Sprintf("\033[90m%s\033[0m\033[K", truncateDisplayWidthEnd(helpText, termWidth-2)))
 	} else {
-		helpText := "[j/k:move  SPC:skip  R:replace  J/K:file  g/G:jump  pgup/dn  /:filter  Enter/o:open  q:quit]"
+		helpText := "[j/k:move  SPC:del line  R/Tab:replace  a:all  J/K:file  g/G:jump  pgup/dn  /:filter  e/o:open  q:quit]"
 		buf.WriteString(fmt.Sprintf("\033[90m%s\033[0m\033[K", truncateDisplayWidthEnd(helpText, termWidth-2)))
 	}
 
@@ -1188,7 +1170,14 @@ func runTUI(results []WigResultItem, searchPattern string, fileTypes []string, i
 
 	cursor := 0
 	viewportStart := 0
-	excluded := make(map[int]bool) // resultIdx -> true (marked as skip / not for replace)
+	excluded := make(map[int]bool) // resultIdx -> true (marked as removed)
+
+	inFilterMode := false
+	inReplaceMode := false
+	replaceText := ""
+
+	statusNotice := ""
+	statusNoticeTime := time.Time{}
 
 	enterAlternateScreen()
 	defer exitAlternateScreen()
@@ -1202,7 +1191,6 @@ func runTUI(results []WigResultItem, searchPattern string, fileTypes []string, i
 
 	reader := bufio.NewReader(os.Stdin)
 	var numBuffer string
-	inFilterMode := false
 
 	for {
 		termHeight, _ := getTerminalSize()
@@ -1211,7 +1199,6 @@ func runTUI(results []WigResultItem, searchPattern string, fileTypes []string, i
 			maxRows = 1
 		}
 
-		// Adjust viewport window relative to cursor
 		if cursor < viewportStart {
 			viewportStart = cursor
 		} else if cursor >= viewportStart+maxRows {
@@ -1224,26 +1211,80 @@ func runTUI(results []WigResultItem, searchPattern string, fileTypes []string, i
 			viewportStart = 0
 		}
 
-		renderTUI(entries, groups, cursor, viewportStart, filter, searchPattern, fileTypes, ignoreCase, inFilterMode, numBuffer, excluded)
+		activeNotice := ""
+		if statusNotice != "" && time.Since(statusNoticeTime) < 4*time.Second {
+			activeNotice = statusNotice
+		}
+
+		renderTUI(entries, groups, cursor, viewportStart, filter, searchPattern, fileTypes, ignoreCase, inFilterMode, inReplaceMode, replaceText, numBuffer, excluded, activeNotice)
 
 		b, err := reader.ReadByte()
 		if err != nil {
 			break
 		}
 
+		// --- Replace Typing Mode (activated with 'R' or 'Tab') ---
+		if inReplaceMode {
+			if b == 27 { // Esc cancels replace mode
+				inReplaceMode = false
+				replaceText = ""
+				continue
+			}
+
+			if b == '\t' { // Tab: drop back to navigation to inspect matches with live preview!
+				inReplaceMode = false
+				continue
+			}
+
+			if b == '\r' || b == '\n' { // Single Enter: apply replacement directly to all active matches
+				inReplaceMode = false
+				replacedCount, filesModified, err := applyReplacement(results, excluded, searchPattern, replaceText, ignoreCase)
+				if err != nil {
+					statusNotice = fmt.Sprintf("\033[1;31m❌ Replace error: %v\033[0m", err)
+				} else if replacedCount > 0 {
+					statusNotice = fmt.Sprintf("\033[1;32m✓ Replaced %d occurrences in %d files\033[0m", replacedCount, filesModified)
+				} else {
+					statusNotice = "\033[1;33mNo occurrences replaced\033[0m"
+				}
+				statusNoticeTime = time.Now()
+				replaceText = ""
+				entries, groups = buildEntries(filter)
+				continue
+			}
+
+			if b == 127 || b == 8 { // Backspace
+				if len(replaceText) > 0 {
+					r := []rune(replaceText)
+					replaceText = string(r[:len(r)-1])
+				}
+				continue
+			}
+
+			if b == 21 { // Ctrl+U: clear line
+				replaceText = ""
+				continue
+			}
+
+			if b >= 32 && b <= 126 { // Normal typing
+				replaceText += string(b)
+				continue
+			}
+			continue
+		}
+
 		// --- Filter Editing Mode (activated with /) ---
 		if inFilterMode {
-			if b == 27 { // Esc or escape sequence in filter mode
+			if b == 27 {
 				if reader.Buffered() >= 2 {
 					b1, _ := reader.ReadByte()
 					b2, _ := reader.ReadByte()
 					if b1 == '[' {
 						switch b2 {
-						case 'A': // Up
+						case 'A':
 							if cursor > 0 {
 								cursor--
 							}
-						case 'B': // Down
+						case 'B':
 							if cursor < len(entries)-1 {
 								cursor++
 							}
@@ -1255,12 +1296,12 @@ func runTUI(results []WigResultItem, searchPattern string, fileTypes []string, i
 				continue
 			}
 
-			if b == '\r' || b == '\n' { // Enter completes filtering
+			if b == '\r' || b == '\n' {
 				inFilterMode = false
 				continue
 			}
 
-			if b == 127 || b == 8 { // Backspace
+			if b == 127 || b == 8 {
 				if len(filter) > 0 {
 					filter = filter[:len(filter)-1]
 					entries, groups = buildEntries(filter)
@@ -1274,14 +1315,14 @@ func runTUI(results []WigResultItem, searchPattern string, fileTypes []string, i
 				continue
 			}
 
-			if b == 21 { // Ctrl+U: clear filter
+			if b == 21 {
 				filter = ""
 				entries, groups = buildEntries(filter)
 				cursor = 0
 				continue
 			}
 
-			if b == 23 { // Ctrl+W: delete word
+			if b == 23 {
 				trimmed := strings.TrimRight(filter, " ")
 				if idx := strings.LastIndex(trimmed, " "); idx != -1 {
 					filter = trimmed[:idx+1]
@@ -1298,7 +1339,7 @@ func runTUI(results []WigResultItem, searchPattern string, fileTypes []string, i
 				continue
 			}
 
-			if b >= 32 && b <= 126 { // Normal typing
+			if b >= 32 && b <= 126 {
 				filter += string(b)
 				entries, groups = buildEntries(filter)
 				if cursor >= len(entries) && len(entries) > 0 {
@@ -1314,9 +1355,8 @@ func runTUI(results []WigResultItem, searchPattern string, fileTypes []string, i
 
 		// --- Normal Vim Motions Mode ---
 
-		// 1. Handle Count prefix (e.g., 3j, 12k, 15G)
 		if b >= '0' && b <= '9' {
-			if !(len(numBuffer) == 0 && b == '0') { // prevent leading 0
+			if !(len(numBuffer) == 0 && b == '0') {
 				numBuffer += string(b)
 				continue
 			}
@@ -1344,28 +1384,28 @@ func runTUI(results []WigResultItem, searchPattern string, fileTypes []string, i
 				cursor = 0
 			}
 
-		case ' ': // Space: toggle mark as excluded ("not for replace")
+		case ' ': // Space: inline toggle remove line (struck-through '-')
 			if len(entries) == 0 || cursor >= len(entries) {
 				continue
 			}
 			target := entries[cursor]
 			if target.isHeader {
 				// Toggle all matches belonging to this file
-				allExcluded := true
+				allRemoved := true
 				var fileIndices []int
 				for _, e := range entries {
 					if !e.isHeader && e.filePath == target.filePath {
 						fileIndices = append(fileIndices, e.resultIdx)
 						if !excluded[e.resultIdx] {
-							allExcluded = false
+							allRemoved = false
 						}
 					}
 				}
 				for _, idx := range fileIndices {
-					excluded[idx] = !allExcluded
+					excluded[idx] = !allRemoved
 				}
 			} else {
-				// Toggle single match and advance to next line for quick multi-toggling
+				// Toggle single match inline and advance cursor for rapid multi-selection
 				excluded[target.resultIdx] = !excluded[target.resultIdx]
 				if cursor < len(entries)-1 {
 					cursor++
@@ -1373,37 +1413,20 @@ func runTUI(results []WigResultItem, searchPattern string, fileTypes []string, i
 			}
 			continue
 
-		case 'R': // Shift+R: wgrep-style replace on selected (non-skipped) matches
-			restoreTerminal()
-			exitAlternateScreen()
-
-			var replaceErr error
-			results, replaceErr = runWgrepReplace(results, excluded, searchPattern, ignoreCase)
-			if replaceErr == nil {
-				// Refresh displayed entries after replacement
-				entries, groups = buildEntries(filter)
-				if cursor >= len(entries) && len(entries) > 0 {
-					cursor = len(entries) - 1
-				}
-			}
-
-			// Resume TUI
-			enterAlternateScreen()
-			_, _ = setRawTerminal()
-			reader = bufio.NewReader(os.Stdin)
+		case 'R', '\t': // 'R' or 'Tab': Enter inline replace mode with live screen preview
+			inReplaceMode = true
 			continue
 
-		case 'r': // Launch rgr (external find & replace tool) if installed
-			if hasExecutable("rgr") {
-				restoreTerminal()
-				exitAlternateScreen()
-
-				_ = runReplacer(searchPattern, fileTypes, ignoreCase)
-
-				// Resume TUI
-				enterAlternateScreen()
-				_, _ = setRawTerminal()
-				reader = bufio.NewReader(os.Stdin)
+		case 'a': // 'a': toggle select / deselect all (rgr style)
+			allRemoved := true
+			for i := range results {
+				if !excluded[i] {
+					allRemoved = false
+					break
+				}
+			}
+			for i := range results {
+				excluded[i] = !allRemoved
 			}
 			continue
 
@@ -1422,7 +1445,7 @@ func runTUI(results []WigResultItem, searchPattern string, fileTypes []string, i
 				cursor = 0
 			}
 
-		case 'J', 'l': // Next file: land on first match line (Shift+J)
+		case 'J', 'l': // Next file
 			for i := 0; i < count; i++ {
 				found := false
 				for _, g := range groups {
@@ -1447,7 +1470,7 @@ func runTUI(results []WigResultItem, searchPattern string, fileTypes []string, i
 				}
 			}
 
-		case 'K', 'h': // Prev file: land on first match line (Shift+K)
+		case 'K', 'h': // Prev file
 			for i := 0; i < count; i++ {
 				found := false
 				for idx := len(groups) - 1; idx >= 0; idx-- {
@@ -1473,7 +1496,7 @@ func runTUI(results []WigResultItem, searchPattern string, fileTypes []string, i
 				}
 			}
 
-		case 'g': // Jump to top, or <num>g jump to line
+		case 'g': // Jump to top, or <num>g jump
 			if hasCount {
 				cursor = count - 1
 				if cursor >= len(entries) && len(entries) > 0 {
@@ -1511,13 +1534,30 @@ func runTUI(results []WigResultItem, searchPattern string, fileTypes []string, i
 				cursor = len(entries) - 1
 			}
 
-		case '\r', '\n', 'o', 'e': // Open selection in editor and return back to TUI on quit
+		case '\r', '\n':
+			// If a preview replacement string is active, Enter applies it!
+			if replaceText != "" {
+				replacedCount, filesModified, err := applyReplacement(results, excluded, searchPattern, replaceText, ignoreCase)
+				if err != nil {
+					statusNotice = fmt.Sprintf("\033[1;31m❌ Replace error: %v\033[0m", err)
+				} else if replacedCount > 0 {
+					statusNotice = fmt.Sprintf("\033[1;32m✓ Replaced %d occurrences in %d files\033[0m", replacedCount, filesModified)
+				} else {
+					statusNotice = "\033[1;33mNo occurrences replaced\033[0m"
+				}
+				statusNoticeTime = time.Now()
+				replaceText = ""
+				entries, groups = buildEntries(filter)
+				continue
+			}
+			// If no replacement is active, open editor
+			fallthrough
+		case 'o', 'e': // Open selection in editor
 			if len(entries) == 0 || cursor >= len(entries) {
 				continue
 			}
 			target := entries[cursor]
 
-			// 1. Temporarily restore cooked terminal mode before handing over to editor
 			restoreTerminal()
 			exitAlternateScreen()
 
@@ -1530,13 +1570,18 @@ func runTUI(results []WigResultItem, searchPattern string, fileTypes []string, i
 				_ = openEditor(target.matchItem)
 			}
 
-			// 2. Re-enter alternate screen buffer & raw terminal mode to resume TUI
 			enterAlternateScreen()
 			_, _ = setRawTerminal()
-			reader = bufio.NewReader(os.Stdin) // Re-create reader for fresh stdin state
+			reader = bufio.NewReader(os.Stdin)
 			continue
 
-		case 27: // Handle ANSI Arrow Keys & Page Up/Down
+		case 27: // Handle Esc / ANSI Arrow Keys / Page Up / Page Down
+			if reader.Buffered() == 0 {
+				if replaceText != "" {
+					replaceText = ""
+					continue
+				}
+			}
 			if reader.Buffered() >= 2 {
 				b1, _ := reader.ReadByte()
 				b2, _ := reader.ReadByte()
