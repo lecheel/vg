@@ -554,26 +554,46 @@ type fileGroup struct {
 	entryIndex int // index in displayEntries
 }
 
-func getTerminalHeight() int {
+func getTerminalSize() (int, int) {
 	cmd := exec.Command("stty", "size")
 	cmd.Stdin = os.Stdin
 	out, err := cmd.Output()
 	if err == nil {
 		parts := strings.Fields(string(out))
-		if len(parts) >= 1 {
-			if h, err := strconv.Atoi(parts[0]); err == nil && h > 0 {
-				return h
+		if len(parts) >= 2 {
+			h, errH := strconv.Atoi(parts[0])
+			w, errW := strconv.Atoi(parts[1])
+			if errH == nil && errW == nil && h > 0 && w > 0 {
+				return h, w
 			}
 		}
 	}
-	return 24
+	h := 24
+	w := 80
+	if envLines := os.Getenv("LINES"); envLines != "" {
+		if val, err := strconv.Atoi(envLines); err == nil && val > 0 {
+			h = val
+		}
+	}
+	if envCols := os.Getenv("COLUMNS"); envCols != "" {
+		if val, err := strconv.Atoi(envCols); err == nil && val > 0 {
+			w = val
+		}
+	}
+	return h, w
+}
+
+func getTerminalHeight() int {
+	h, _ := getTerminalSize()
+	return h
 }
 
 func getPageSize() int {
-	// Screen height minus title header (1 line) and bottom bar / prompt (3 lines)
-	pageSize := getTerminalHeight() - 4
-	if pageSize < 5 {
-		pageSize = 5
+	// Screen height minus title bar (1), status bar (1), and command/help bar (1)
+	h, _ := getTerminalSize()
+	pageSize := h - 3
+	if pageSize < 1 {
+		pageSize = 1
 	}
 	return pageSize
 }
@@ -595,7 +615,7 @@ func restoreTerminal() {
 
 func enterAlternateScreen() {
 	// Enter alternate screen buffer & hide cursor
-	fmt.Print("\033[?1049h\033[?25l")
+	fmt.Print("\033[?1049h\033[?25l\033[2J")
 }
 
 func exitAlternateScreen() {
@@ -603,81 +623,284 @@ func exitAlternateScreen() {
 	fmt.Print("\033[0m\033[?25h\033[?1049l")
 }
 
-func renderTUI(entries []displayEntry, cursor int, filterText string, searchPattern string, inFilterMode bool) {
-	termHeight := getTerminalHeight()
-	maxRows := termHeight - 4 // reserve space for header & prompt
-	if maxRows < 5 {
-		maxRows = 5
+func truncateRunesEnd(s string, maxLen int) string {
+	if maxLen <= 0 {
+		return ""
+	}
+	r := []rune(s)
+	if len(r) <= maxLen {
+		return s
+	}
+	if maxLen <= 3 {
+		return string(r[:maxLen])
+	}
+	return string(r[:maxLen-1]) + "…"
+}
+
+func truncateRunesStart(s string, maxLen int) string {
+	if maxLen <= 0 {
+		return ""
+	}
+	r := []rune(s)
+	if len(r) <= maxLen {
+		return s
+	}
+	if maxLen <= 3 {
+		return string(r[len(r)-maxLen:])
+	}
+	return "…" + string(r[len(r)-(maxLen-1):])
+}
+
+func highlightText(text, pattern string, ignoreCase bool, highlightStyle, baseStyle string) string {
+	if pattern == "" || text == "" {
+		return text
+	}
+	if ignoreCase {
+		lowerText := strings.ToLower(text)
+		lowerPattern := strings.ToLower(pattern)
+		var buf strings.Builder
+		lastIdx := 0
+		pLen := len(pattern)
+		for {
+			idx := strings.Index(lowerText[lastIdx:], lowerPattern)
+			if idx == -1 {
+				buf.WriteString(text[lastIdx:])
+				break
+			}
+			matchStart := lastIdx + idx
+			matchEnd := matchStart + pLen
+			buf.WriteString(text[lastIdx:matchStart])
+			buf.WriteString(highlightStyle)
+			buf.WriteString(text[matchStart:matchEnd])
+			buf.WriteString("\033[0m")
+			buf.WriteString(baseStyle)
+			lastIdx = matchEnd
+		}
+		return buf.String()
+	}
+	return strings.ReplaceAll(text, pattern, fmt.Sprintf("%s%s\033[0m%s", highlightStyle, pattern, baseStyle))
+}
+
+func renderTUI(
+	entries []displayEntry,
+	groups []fileGroup,
+	cursor int,
+	viewportStart int,
+	filterText string,
+	searchPattern string,
+	fileTypes []string,
+	ignoreCase bool,
+	inFilterMode bool,
+	numBuffer string,
+) {
+	termHeight, termWidth := getTerminalSize()
+	if termHeight < 5 {
+		termHeight = 5
+	}
+	if termWidth < 20 {
+		termWidth = 20
 	}
 
-	// Calculate scroll viewport window
-	startIdx := 0
-	if cursor >= maxRows {
-		startIdx = cursor - maxRows + 1
-	}
-	endIdx := startIdx + maxRows
-	if endIdx > len(entries) {
-		endIdx = len(entries)
+	// 1 row Title + 1 row StatusBar + 1 row CommandBar = 3 reserved rows
+	maxRows := termHeight - 3
+	if maxRows < 1 {
+		maxRows = 1
 	}
 
 	var buf bytes.Buffer
-	// Reset cursor to top-left and clear display
-	buf.WriteString("\033[H\033[2J")
+	// Reposition cursor to top-left (no screen flicker)
+	buf.WriteString("\033[H")
 
-	// Filter string with red cursor indicator when typing in filter mode
-	filterDisplay := filterText
-	if inFilterMode {
-		filterDisplay = fmt.Sprintf("%s\033[41;1;37m \033[0m", filterText)
+	// =========================================================================
+	// 1. TITLE BAR (Row 1)
+	// =========================================================================
+	badge := "\033[1;30;46m VGREP \033[0m"
+	titleLeft := fmt.Sprintf("%s \033[1;37m%s\033[0m", badge, searchPattern)
+	leftRuneCount := 8 + len([]rune(searchPattern))
+
+	if ignoreCase {
+		titleLeft += " \033[90m[-i]\033[0m"
+		leftRuneCount += 5
+	}
+	if len(fileTypes) > 0 {
+		typesStr := fmt.Sprintf("[%s]", strings.Join(fileTypes, ","))
+		titleLeft += fmt.Sprintf(" \033[90m%s\033[0m", typesStr)
+		leftRuneCount += 1 + len([]rune(typesStr))
 	}
 
-	// Title / Filter Header
-	buf.WriteString(fmt.Sprintf("\033[1;30;46m vgrep \033[0m \033[1;36mfilter:\033[0m %s\033[K\r\n", filterDisplay))
+	if inFilterMode {
+		filterBadge := fmt.Sprintf("  \033[1;33m/\033[0m\033[1;30;43m %s \033[0m\033[41;1;37m \033[0m", filterText)
+		titleLeft += filterBadge
+		leftRuneCount += 6 + len([]rune(filterText))
+	} else if filterText != "" {
+		filterBadge := fmt.Sprintf("  \033[1;33m/\033[0m\033[1;36m%s\033[0m", filterText)
+		titleLeft += filterBadge
+		leftRuneCount += 3 + len([]rune(filterText))
+	}
 
-	for i := startIdx; i < endIdx; i++ {
-		entry := entries[i]
-		relNum := i - cursor
+	matchCount := 0
+	for _, e := range entries {
+		if !e.isHeader {
+			matchCount++
+		}
+	}
+	titleRight := fmt.Sprintf("\033[90m%d matches in %d files\033[0m", matchCount, len(groups))
+	rightRuneCount := len([]rune(fmt.Sprintf("%d matches in %d files", matchCount, len(groups))))
+
+	spaceCount := termWidth - leftRuneCount - rightRuneCount
+	if spaceCount > 0 {
+		buf.WriteString(fmt.Sprintf("%s%s%s\033[K\r\n", titleLeft, strings.Repeat(" ", spaceCount), titleRight))
+	} else {
+		buf.WriteString(fmt.Sprintf("%s\033[K\r\n", titleLeft))
+	}
+
+	// =========================================================================
+	// 2. MATCH ENTRIES VIEWPORT (Rows 2 to termHeight - 2)
+	// =========================================================================
+	for row := 0; row < maxRows; row++ {
+		entryIdx := viewportStart + row
+		if entryIdx >= len(entries) {
+			if len(entries) == 0 && row == 0 {
+				buf.WriteString("  \033[90m(no matching results)\033[0m\033[K\r\n")
+			} else {
+				buf.WriteString("~\033[K\r\n")
+			}
+			continue
+		}
+
+		entry := entries[entryIdx]
+		relNum := entryIdx - cursor
 		if relNum < 0 {
 			relNum = -relNum
 		}
 
-		// Cursor highlight indicator
 		cursorPrefix := "  "
 		bgStyle := ""
 		resetStyle := "\033[0m"
-		if i == cursor {
+		if entryIdx == cursor {
 			cursorPrefix = "\033[1;32m> \033[0m"
 			bgStyle = "\033[48;5;236m"
 		}
 
 		relNumStr := fmt.Sprintf("\033[90m%2d\033[0m", relNum)
-		if i == cursor {
+		if entryIdx == cursor {
 			relNumStr = "\033[1;33m 0\033[0m"
 		}
 
 		if entry.isHeader {
-			buf.WriteString(fmt.Sprintf("%s%s %s\033[1;36m📁 %s\033[0m%s\033[K\r\n",
-				cursorPrefix, relNumStr, bgStyle, shortenHome(entry.filePath), resetStyle))
-		} else {
-			cleanText := strings.TrimRight(entry.matchItem.Text, "\r\n")
-			// Highlight search pattern in text
-			if searchPattern != "" {
-				cleanText = strings.ReplaceAll(cleanText, searchPattern, fmt.Sprintf("\033[1;31m%s\033[0m%s", searchPattern, bgStyle))
+			maxPathLen := termWidth - 8
+			if maxPathLen < 10 {
+				maxPathLen = 10
 			}
+			displayPath := shortenHome(entry.filePath)
+			displayPath = truncateRunesStart(displayPath, maxPathLen)
+
+			buf.WriteString(fmt.Sprintf("%s%s %s\033[1;36m📁 %s\033[0m%s\033[K\r\n",
+				cursorPrefix, relNumStr, bgStyle, displayPath, resetStyle))
+		} else {
+			cleanText := strings.ReplaceAll(entry.matchItem.Text, "\t", "    ")
+			cleanText = strings.TrimRight(cleanText, "\r\n")
+
+			prefixWidth := 14 // cursor(2) + rel(2) + sp(1) + line(5) + sp(2) + margin(2)
+			maxTextLen := termWidth - prefixWidth
+			if maxTextLen < 10 {
+				maxTextLen = 10
+			}
+			cleanText = truncateRunesEnd(cleanText, maxTextLen)
+
+			// Highlight search pattern
+			if searchPattern != "" {
+				cleanText = highlightText(cleanText, searchPattern, ignoreCase, "\033[1;31m", bgStyle)
+			}
+			// Highlight filter query
+			if filterText != "" {
+				cleanText = highlightText(cleanText, filterText, true, "\033[1;33;4m", bgStyle)
+			}
+
 			buf.WriteString(fmt.Sprintf("%s%s %s  \033[33m%4d:\033[0m %s%s\033[K\r\n",
 				cursorPrefix, relNumStr, bgStyle, entry.matchItem.Line, cleanText, resetStyle))
 		}
 	}
 
-	// Fill remaining blank rows if any
-	for i := endIdx - startIdx; i < maxRows; i++ {
-		buf.WriteString("~\033[K\r\n")
+	// =========================================================================
+	// 3. STATUS BAR (Row termHeight - 1)
+	// =========================================================================
+	modeBadge := "\033[1;30;42m NORMAL \033[0;48;5;236;37m"
+	modeLen := 8
+	if inFilterMode {
+		modeBadge = "\033[1;30;43m FILTER \033[0;48;5;236;37m"
+		modeLen = 8
 	}
 
-	// Footer Help / Vim motion bar (hide 'r' if rgr is not found)
-	if hasExecutable("rgr") {
-		buf.WriteString("\033[K\r\n\033[90m[j/k, <num>j/k, J/K (files), g/G, pgup/pgdn, / (filter), r (rgr replace), Enter/o (open), q (quit)]\033[0m\033[K")
+	countBadge := ""
+	countLen := 0
+	if numBuffer != "" {
+		countBadge = fmt.Sprintf(" \033[1;30;45m %s \033[0;48;5;236;37m", numBuffer)
+		countLen = 3 + len([]rune(numBuffer))
+	}
+
+	locStr := " No selection"
+	if len(entries) > 0 && cursor < len(entries) {
+		current := entries[cursor]
+		if current.isHeader {
+			locStr = fmt.Sprintf(" 📁 %s", shortenHome(current.filePath))
+		} else {
+			locStr = fmt.Sprintf(" 📁 %s:%d:%d", shortenHome(current.filePath), current.matchItem.Line, current.matchItem.Char+1)
+		}
+	}
+
+	// Percentage position
+	pctStr := "[---]"
+	if len(entries) > 0 {
+		if len(entries) == 1 {
+			pctStr = "[All]"
+		} else if cursor == 0 {
+			pctStr = "[Top]"
+		} else if cursor == len(entries)-1 {
+			pctStr = "[Bot]"
+		} else {
+			pct := (cursor * 100) / (len(entries) - 1)
+			pctStr = fmt.Sprintf("[%2d%%]", pct)
+		}
+	}
+
+	posStr := "0/0"
+	if len(entries) > 0 {
+		posStr = fmt.Sprintf("%d/%d", cursor+1, len(entries))
+	}
+
+	statusRight := fmt.Sprintf("%s %s ", posStr, pctStr)
+	statusRightLen := len([]rune(statusRight))
+
+	availForLoc := termWidth - modeLen - countLen - statusRightLen - 2
+	if availForLoc < 5 {
+		locStr = ""
 	} else {
-		buf.WriteString("\033[K\r\n\033[90m[j/k, <num>j/k, J/K (files), g/G, pgup/pgdn, / (filter), Enter/o (open), q (quit)]\033[0m\033[K")
+		locStr = truncateRunesStart(locStr, availForLoc)
+	}
+
+	statusLeft := fmt.Sprintf("%s%s%s", modeBadge, countBadge, locStr)
+	statusLeftLen := modeLen + countLen + len([]rune(locStr))
+
+	statusSpaces := termWidth - statusLeftLen - statusRightLen
+	if statusSpaces < 0 {
+		statusSpaces = 0
+	}
+
+	buf.WriteString(fmt.Sprintf("\033[48;5;236;37m%s%s%s\033[0m\033[K\r\n",
+		statusLeft, strings.Repeat(" ", statusSpaces), statusRight))
+
+	// =========================================================================
+	// 4. COMMAND / HELP BAR (Row termHeight) - Note: NO trailing \r\n
+	// =========================================================================
+	if inFilterMode {
+		buf.WriteString(fmt.Sprintf("\033[1;33mFILTER>\033[0m %s\033[41;1;37m \033[0m \033[90m(Enter/Esc: done, Backspace: del, Ctrl+U: clear)\033[0m\033[K", filterText))
+	} else {
+		if hasExecutable("rgr") {
+			buf.WriteString("\033[90m[j/k:move  J/K:file  <num>:jump  g/G:top/bot  pgup/dn  /:filter  r:replace  Enter/o:open  q:quit]\033[0m\033[K")
+		} else {
+			buf.WriteString("\033[90m[j/k:move  J/K:file  <num>:jump  g/G:top/bot  pgup/dn  /:filter  Enter/o:open  q:quit]\033[0m\033[K")
+		}
 	}
 
 	os.Stdout.Write(buf.Bytes())
@@ -735,12 +958,9 @@ func runTUI(results []WigResultItem, searchPattern string, fileTypes []string, i
 
 	filter := ""
 	entries, groups := buildEntries(filter)
-	if len(entries) == 0 {
-		fmt.Printf("No matches for filter %q\n", filter)
-		return
-	}
 
 	cursor := 0
+	viewportStart := 0
 
 	enterAlternateScreen()
 	defer exitAlternateScreen()
@@ -757,7 +977,26 @@ func runTUI(results []WigResultItem, searchPattern string, fileTypes []string, i
 	inFilterMode := false
 
 	for {
-		renderTUI(entries, cursor, filter, searchPattern, inFilterMode)
+		termHeight, _ := getTerminalSize()
+		maxRows := termHeight - 3
+		if maxRows < 1 {
+			maxRows = 1
+		}
+
+		// Adjust viewport window relative to cursor
+		if cursor < viewportStart {
+			viewportStart = cursor
+		} else if cursor >= viewportStart+maxRows {
+			viewportStart = cursor - maxRows + 1
+		}
+		if len(entries) > 0 && viewportStart > len(entries)-maxRows {
+			viewportStart = len(entries) - maxRows
+		}
+		if viewportStart < 0 {
+			viewportStart = 0
+		}
+
+		renderTUI(entries, groups, cursor, viewportStart, filter, searchPattern, fileTypes, ignoreCase, inFilterMode, numBuffer)
 
 		b, err := reader.ReadByte()
 		if err != nil {
@@ -766,35 +1005,88 @@ func runTUI(results []WigResultItem, searchPattern string, fileTypes []string, i
 
 		// --- Filter Editing Mode (activated with /) ---
 		if inFilterMode {
-			if b == '\r' || b == '\n' || b == 27 { // Enter or Esc exits filter mode
+			if b == 27 { // Esc or escape sequence in filter mode
+				if reader.Buffered() >= 2 {
+					b1, _ := reader.ReadByte()
+					b2, _ := reader.ReadByte()
+					if b1 == '[' {
+						switch b2 {
+						case 'A': // Up
+							if cursor > 0 {
+								cursor--
+							}
+						case 'B': // Down
+							if cursor < len(entries)-1 {
+								cursor++
+							}
+						}
+					}
+					continue
+				}
 				inFilterMode = false
-			} else if b == 127 || b == 8 { // Backspace
+				continue
+			}
+
+			if b == '\r' || b == '\n' { // Enter completes filtering
+				inFilterMode = false
+				continue
+			}
+
+			if b == 127 || b == 8 { // Backspace
 				if len(filter) > 0 {
 					filter = filter[:len(filter)-1]
 					entries, groups = buildEntries(filter)
-					if cursor >= len(entries) {
+					if cursor >= len(entries) && len(entries) > 0 {
 						cursor = len(entries) - 1
 					}
 					if cursor < 0 {
 						cursor = 0
 					}
 				}
-			} else if b >= 32 && b <= 126 { // Normal typing
-				filter += string(b)
+				continue
+			}
+
+			if b == 21 { // Ctrl+U: clear filter
+				filter = ""
 				entries, groups = buildEntries(filter)
-				if cursor >= len(entries) {
+				cursor = 0
+				continue
+			}
+
+			if b == 23 { // Ctrl+W: delete word
+				trimmed := strings.TrimRight(filter, " ")
+				if idx := strings.LastIndex(trimmed, " "); idx != -1 {
+					filter = trimmed[:idx+1]
+				} else {
+					filter = ""
+				}
+				entries, groups = buildEntries(filter)
+				if cursor >= len(entries) && len(entries) > 0 {
 					cursor = len(entries) - 1
 				}
 				if cursor < 0 {
 					cursor = 0
 				}
+				continue
+			}
+
+			if b >= 32 && b <= 126 { // Normal typing
+				filter += string(b)
+				entries, groups = buildEntries(filter)
+				if cursor >= len(entries) && len(entries) > 0 {
+					cursor = len(entries) - 1
+				}
+				if cursor < 0 {
+					cursor = 0
+				}
+				continue
 			}
 			continue
 		}
 
 		// --- Normal Vim Motions Mode ---
 
-		// 1. Handle Count prefix (e.g., 3j, 12k)
+		// 1. Handle Count prefix (e.g., 3j, 12k, 15G)
 		if b >= '0' && b <= '9' {
 			if !(len(numBuffer) == 0 && b == '0') { // prevent leading 0
 				numBuffer += string(b)
@@ -803,7 +1095,8 @@ func runTUI(results []WigResultItem, searchPattern string, fileTypes []string, i
 		}
 
 		count := 1
-		if len(numBuffer) > 0 {
+		hasCount := len(numBuffer) > 0
+		if hasCount {
 			if c, err := strconv.Atoi(numBuffer); err == nil && c > 0 {
 				count = c
 			}
@@ -815,6 +1108,13 @@ func runTUI(results []WigResultItem, searchPattern string, fileTypes []string, i
 			restoreTerminal()
 			exitAlternateScreen()
 			return
+
+		case 'c': // 'c' clears active filter
+			if filter != "" {
+				filter = ""
+				entries, groups = buildEntries(filter)
+				cursor = 0
+			}
 
 		case 'r': // Launch rgr (find & replace) on searchPattern (only active if rgr exists)
 			if hasExecutable("rgr") {
@@ -835,7 +1135,7 @@ func runTUI(results []WigResultItem, searchPattern string, fileTypes []string, i
 
 		case 'j': // Move down by count
 			cursor += count
-			if cursor >= len(entries) {
+			if cursor >= len(entries) && len(entries) > 0 {
 				cursor = len(entries) - 1
 			}
 
@@ -849,7 +1149,6 @@ func runTUI(results []WigResultItem, searchPattern string, fileTypes []string, i
 			for i := 0; i < count; i++ {
 				found := false
 				for _, g := range groups {
-					// Target is the first match under the next header (g.entryIndex + 1)
 					targetIdx := g.entryIndex
 					if targetIdx+1 < len(entries) && !entries[targetIdx+1].isHeader {
 						targetIdx = targetIdx + 1
@@ -871,7 +1170,7 @@ func runTUI(results []WigResultItem, searchPattern string, fileTypes []string, i
 				}
 			}
 
-		case 'K', 'L': // Prev file: land on first match line (Shift+K)
+		case 'K', 'h': // Prev file: land on first match line (Shift+K)
 			for i := 0; i < count; i++ {
 				found := false
 				for idx := len(groups) - 1; idx >= 0; idx-- {
@@ -897,23 +1196,41 @@ func runTUI(results []WigResultItem, searchPattern string, fileTypes []string, i
 				}
 			}
 
-		case 'g': // Jump to top (including line 0 / first file header)
-			cursor = 0
+		case 'g': // Jump to top, or <num>g jump to line
+			if hasCount {
+				cursor = count - 1
+				if cursor >= len(entries) && len(entries) > 0 {
+					cursor = len(entries) - 1
+				}
+				if cursor < 0 {
+					cursor = 0
+				}
+			} else {
+				cursor = 0
+			}
 
-		case 'G': // Bottom of list
-			if len(entries) > 0 {
+		case 'G': // Bottom of list, or <num>G jump
+			if hasCount {
+				cursor = count - 1
+				if cursor >= len(entries) && len(entries) > 0 {
+					cursor = len(entries) - 1
+				}
+				if cursor < 0 {
+					cursor = 0
+				}
+			} else if len(entries) > 0 {
 				cursor = len(entries) - 1
 			}
 
-		case 2, 21: // Ctrl+B, Ctrl+U: Page Up (screen height minus title and bar)
+		case 2, 21: // Ctrl+B, Ctrl+U: Page Up
 			cursor -= getPageSize() * count
 			if cursor < 0 {
 				cursor = 0
 			}
 
-		case 6, 4: // Ctrl+F, Ctrl+D: Page Down (screen height minus title and bar)
+		case 6, 4: // Ctrl+F, Ctrl+D: Page Down
 			cursor += getPageSize() * count
-			if cursor >= len(entries) {
+			if cursor >= len(entries) && len(entries) > 0 {
 				cursor = len(entries) - 1
 			}
 
@@ -955,7 +1272,7 @@ func runTUI(results []WigResultItem, searchPattern string, fileTypes []string, i
 						}
 					case 'B': // Down
 						cursor += count
-						if cursor >= len(entries) {
+						if cursor >= len(entries) && len(entries) > 0 {
 							cursor = len(entries) - 1
 						}
 					case '5': // Page Up (\x1b[5~)
@@ -977,7 +1294,7 @@ func runTUI(results []WigResultItem, searchPattern string, fileTypes []string, i
 							}
 						}
 						cursor += getPageSize() * count
-						if cursor >= len(entries) {
+						if cursor >= len(entries) && len(entries) > 0 {
 							cursor = len(entries) - 1
 						}
 					}
