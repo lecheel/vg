@@ -6,6 +6,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+
+	"vgrep/internal/color"
 )
 
 func GetConfigDir() string {
@@ -55,32 +57,32 @@ func HasExecutable(name string) bool {
 }
 
 func CheckHealth() {
-	fmt.Println("\033[1;36m=== vgrep Health Check ===\033[0m\n")
+	fmt.Printf("%s=== vgrep Health Check ===%s\n\n", color.FgBoldCyan, color.Reset)
 
 	// 1. Check Ripgrep (rg) - required
 	if HasExecutable("rg") {
 		rgPath, _ := exec.LookPath("rg")
 		out, _ := exec.Command("rg", "--version").Output()
 		ver := strings.Split(string(out), "\n")[0]
-		fmt.Printf("  ✅ \033[1;32mripgrep (rg)\033[0m: %s (\033[90m%s\033[0m)\n", ver, ShortenHome(rgPath))
+		fmt.Printf("  ✅ %sripgrep (rg)%s: %s (%s%s%s)\n", color.FgBoldGreen, color.Reset, ver, color.FgGray, ShortenHome(rgPath), color.Reset)
 	} else {
-		fmt.Println("  ❌ \033[1;31mripgrep (rg)\033[0m: NOT FOUND (Required for searching)")
+		fmt.Printf("  ❌ %sripgrep (rg)%s: NOT FOUND (Required for searching)\n", color.FgBoldRed, color.Reset)
 	}
 
 	// 2. Check fzf - optional
 	if HasExecutable("fzf") {
 		fzfPath, _ := exec.LookPath("fzf")
-		fmt.Printf("  ✅ \033[1;32mfzf\033[0m: Found (\033[90m%s\033[0m)\n", ShortenHome(fzfPath))
+		fmt.Printf("  ✅ %sfzf%s: Found (%s%s%s)\n", color.FgBoldGreen, color.Reset, color.FgGray, ShortenHome(fzfPath), color.Reset)
 	} else {
-		fmt.Println("  ⚠️  \033[1;33mfzf\033[0m: NOT FOUND (Fuzzy history selection will use fallback numbered prompt)")
+		fmt.Printf("  ⚠️  %sfzf%s: NOT FOUND (Fuzzy history selection will use fallback numbered prompt)\n", color.FgBoldYellow, color.Reset)
 	}
 
 	// 3. Check rgr (repgrep) - optional for 'r' key
 	if HasExecutable("rgr") {
 		rgrPath, _ := exec.LookPath("rgr")
-		fmt.Printf("  ✅ \033[1;32mrgr (repgrep)\033[0m: Found (\033[90m%s\033[0m)\n", ShortenHome(rgrPath))
+		fmt.Printf("  ✅ %srgr (repgrep)%s: Found (%s%s%s)\n", color.FgBoldGreen, color.Reset, color.FgGray, ShortenHome(rgrPath), color.Reset)
 	} else {
-		fmt.Println("  ⚠️  \033[1;33mrgr (repgrep)\033[0m: NOT FOUND ('r' find & replace action will be hidden)")
+		fmt.Printf("  ⚠️  %srgr (repgrep)%s: NOT FOUND ('r' find & replace action will be hidden)\n", color.FgBoldYellow, color.Reset)
 	}
 
 	// 4. Check Editor
@@ -88,29 +90,29 @@ func CheckHealth() {
 	if editor != "" {
 		if HasExecutable(editor) {
 			edPath, _ := exec.LookPath(editor)
-			fmt.Printf("  ✅ \033[1;32m$EDITOR (%s)\033[0m: Found (\033[90m%s\033[0m)\n", editor, ShortenHome(edPath))
+			fmt.Printf("  ✅ %s$EDITOR (%s)%s: Found (%s%s%s)\n", color.FgBoldGreen, editor, color.Reset, color.FgGray, ShortenHome(edPath), color.Reset)
 		} else {
-			fmt.Printf("  ❌ \033[1;31m$EDITOR (%s)\033[0m: Configured but binary not found in $PATH\n", editor)
+			fmt.Printf("  ❌ %s$EDITOR (%s)%s: Configured but binary not found in $PATH\n", color.FgBoldRed, editor, color.Reset)
 		}
 	} else {
 		foundFallback := false
 		for _, ed := range []string{"wig", "nvim", "vim"} {
 			if HasExecutable(ed) {
 				edPath, _ := exec.LookPath(ed)
-				fmt.Printf("  ✅ \033[1;32mEditor fallback (%s)\033[0m: Found (\033[90m%s\033[0m)\n", ed, ShortenHome(edPath))
+				fmt.Printf("  ✅ %sEditor fallback (%s)%s: Found (%s%s%s)\n", color.FgBoldGreen, ed, color.Reset, color.FgGray, ShortenHome(edPath), color.Reset)
 				foundFallback = true
 				break
 			}
 		}
 		if !foundFallback {
-			fmt.Println("  ❌ \033[1;31mEditor\033[0m: No editor found (set $EDITOR or install wig/nvim/vim)")
+			fmt.Printf("  ❌ %sEditor%s: No editor found (set $EDITOR or install wig/nvim/vim)\n", color.FgBoldRed, color.Reset)
 		}
 	}
 
 	// 5. Check paths
-	fmt.Printf("\n  📁 \033[1;34mConfig path\033[0m:  %s\n", ShortenHome(GetConfigFilePath()))
-	fmt.Printf("  📁 \033[1;34mHistory path\033[0m: %s\n", ShortenHome(GetHistoryPath()))
-	fmt.Printf("  📁 \033[1;34mWig session\033[0m:  %s\n\n", ShortenHome(GetWigSessionPath()))
+	fmt.Printf("\n  %sConfig path%s:  %s\n", color.FgBoldBlue, color.Reset, ShortenHome(GetConfigFilePath()))
+	fmt.Printf("  %sHistory path%s: %s\n", color.FgBoldBlue, color.Reset, ShortenHome(GetHistoryPath()))
+	fmt.Printf("  %sWig session%s:  %s\n\n", color.FgBoldBlue, color.Reset, ShortenHome(GetWigSessionPath()))
 }
 
 func EditConfig() error {

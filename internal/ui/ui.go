@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"vgrep/internal/color"
 	"vgrep/internal/config"
 	"vgrep/internal/model"
 	"vgrep/internal/replace"
@@ -71,29 +72,29 @@ func RenderTUI(
 	}
 
 	var buf bytes.Buffer
-	buf.WriteString("\033[H")
+	buf.WriteString(color.CursorHome)
 
 	// 1. TITLE BAR
-	badge := "\033[1;30;46m VGREP \033[0m"
-	titleLeft := fmt.Sprintf("%s \033[1;37m%s\033[0m", badge, searchPattern)
+	badge := fmt.Sprintf("%s VGREP %s", color.BadgeVgrep, color.Reset)
+	titleLeft := fmt.Sprintf("%s %s%s%s", badge, color.FgBoldWhite, searchPattern, color.Reset)
 	leftWidth := 7 + 1 + StrDisplayWidth(searchPattern)
 
 	if ignoreCase {
-		titleLeft += " \033[90m[-i]\033[0m"
+		titleLeft += fmt.Sprintf(" %s[-i]%s", color.FgGray, color.Reset)
 		leftWidth += 5
 	}
 	if len(fileTypes) > 0 {
 		typesStr := fmt.Sprintf("[%s]", strings.Join(fileTypes, ","))
-		titleLeft += fmt.Sprintf(" \033[90m%s\033[0m", typesStr)
+		titleLeft += fmt.Sprintf(" %s%s%s", color.FgGray, typesStr, color.Reset)
 		leftWidth += 1 + StrDisplayWidth(typesStr)
 	}
 
 	if inFilterMode {
-		filterBadge := fmt.Sprintf("  \033[1;33m/\033[0m\033[1;30;43m %s \033[0m\033[41;1;37m \033[0m", filterText)
+		filterBadge := fmt.Sprintf("  %s/%s%s %s %s%s %s", color.FgBoldYellow, color.Reset, color.BadgeFilter, filterText, color.Reset, color.CursorBlock, color.Reset)
 		titleLeft += filterBadge
 		leftWidth += 6 + StrDisplayWidth(filterText)
 	} else if filterText != "" {
-		filterBadge := fmt.Sprintf("  \033[1;33m/\033[0m\033[1;36m%s\033[0m", filterText)
+		filterBadge := fmt.Sprintf("  %s/%s%s%s%s", color.FgBoldYellow, color.Reset, color.FgBoldCyan, filterText, color.Reset)
 		titleLeft += filterBadge
 		leftWidth += 3 + StrDisplayWidth(filterText)
 	}
@@ -112,15 +113,15 @@ func RenderTUI(
 	if removedCount > 0 {
 		statsText = fmt.Sprintf("%d matches (%d removed) in %d files", matchCount, removedCount, len(groups))
 	}
-	titleRight := fmt.Sprintf("\033[90m%s\033[0m", statsText)
+	titleRight := fmt.Sprintf("%s%s%s", color.FgGray, statsText, color.Reset)
 	rightWidth := StrDisplayWidth(statsText)
 
 	maxTitleWidth := termWidth - 2
 	spaceCount := maxTitleWidth - leftWidth - rightWidth
 	if spaceCount > 0 {
-		buf.WriteString(fmt.Sprintf("%s%s%s\033[K\r\n", titleLeft, strings.Repeat(" ", spaceCount), titleRight))
+		buf.WriteString(fmt.Sprintf("%s%s%s%s\r\n", titleLeft, strings.Repeat(" ", spaceCount), titleRight, color.ClearLine))
 	} else {
-		buf.WriteString(fmt.Sprintf("%s \033[K\r\n", titleLeft))
+		buf.WriteString(fmt.Sprintf("%s %s\r\n", titleLeft, color.ClearLine))
 	}
 
 	numWidth := len(strconv.Itoa(len(entries)))
@@ -133,9 +134,9 @@ func RenderTUI(
 		entryIdx := viewportStart + row
 		if entryIdx >= len(entries) {
 			if len(entries) == 0 && row == 0 {
-				buf.WriteString("  \033[90m(no matching results)\033[0m\033[K\r\n")
+				buf.WriteString(fmt.Sprintf("  %s(no matching results)%s%s\r\n", color.FgGray, color.Reset, color.ClearLine))
 			} else {
-				buf.WriteString("~\033[K\r\n")
+				buf.WriteString(fmt.Sprintf("~%s\r\n", color.ClearLine))
 			}
 			continue
 		}
@@ -148,15 +149,15 @@ func RenderTUI(
 
 		cursorPrefix := "  "
 		bgStyle := ""
-		resetStyle := "\033[0m"
+		resetStyle := color.Reset
 		if entryIdx == cursor {
-			cursorPrefix = "\033[1;32m> \033[0m"
-			bgStyle = "\033[48;5;236m"
+			cursorPrefix = fmt.Sprintf("%s> %s", color.FgBoldGreen, color.Reset)
+			bgStyle = color.BgDarkGray
 		}
 
-		relNumStr := fmt.Sprintf("\033[90m%*d\033[0m", numWidth, relNum)
+		relNumStr := fmt.Sprintf("%s%*d%s", color.FgGray, numWidth, relNum, color.Reset)
 		if entryIdx == cursor {
-			relNumStr = fmt.Sprintf("\033[1;33m%*d\033[0m", numWidth, entryIdx+1)
+			relNumStr = fmt.Sprintf("%s%*d%s", color.FgBoldYellow, numWidth, entryIdx+1, color.Reset)
 		}
 
 		if entry.IsHeader {
@@ -181,11 +182,11 @@ func RenderTUI(
 			displayPath = TruncateDisplayWidthStart(displayPath, maxPathLen)
 
 			if matchInFile && allRemoved {
-				buf.WriteString(fmt.Sprintf("%s%s %s\033[31m-\033[90;9m 📁 %s\033[0m%s\033[K\r\n",
-					cursorPrefix, relNumStr, bgStyle, displayPath, resetStyle))
+				buf.WriteString(fmt.Sprintf("%s%s %s%s-%s %s%s%s%s\r\n",
+					cursorPrefix, relNumStr, bgStyle, color.FgRed, color.StrikethroughDim, displayPath, color.Reset, resetStyle, color.ClearLine))
 			} else {
-				buf.WriteString(fmt.Sprintf("%s%s %s\033[1;36m📁 %s\033[0m%s\033[K\r\n",
-					cursorPrefix, relNumStr, bgStyle, displayPath, resetStyle))
+				buf.WriteString(fmt.Sprintf("%s%s %s%s%s%s%s%s\r\n",
+					cursorPrefix, relNumStr, bgStyle, color.FgBoldCyan, displayPath, color.Reset, resetStyle, color.ClearLine))
 			}
 		} else {
 			isRemoved := excluded[entry.ResultIdx]
@@ -200,48 +201,48 @@ func RenderTUI(
 			cleanText = TruncateDisplayWidthEnd(cleanText, maxTextLen)
 
 			if isRemoved {
-				buf.WriteString(fmt.Sprintf("%s%s %s\033[31m-%4d:\033[90;9m %s\033[0m%s\033[K\r\n",
-					cursorPrefix, relNumStr, bgStyle, entry.MatchItem.Line, cleanText, resetStyle))
+				buf.WriteString(fmt.Sprintf("%s%s %s%s-%4d:%s %s%s%s%s\r\n",
+					cursorPrefix, relNumStr, bgStyle, color.FgRed, entry.MatchItem.Line, color.StrikethroughDim, cleanText, color.Reset, resetStyle, color.ClearLine))
 			} else {
 				if inReplaceMode || replaceText != "" {
 					if replaceText == "" {
-						cleanText = HighlightText(cleanText, searchPattern, ignoreCase, "\033[1;30;43m", bgStyle)
+						cleanText = HighlightText(cleanText, searchPattern, ignoreCase, color.HighlightMatch, bgStyle)
 					} else {
-						cleanText = replace.ReplacePattern(cleanText, searchPattern, fmt.Sprintf("\033[1;30;42m%s\033[0m%s", replaceText, bgStyle), ignoreCase)
+						cleanText = replace.ReplacePattern(cleanText, searchPattern, fmt.Sprintf("%s%s%s%s", color.HighlightSubst, replaceText, color.Reset, bgStyle), ignoreCase)
 					}
 				} else {
 					if searchPattern != "" {
-						cleanText = HighlightText(cleanText, searchPattern, ignoreCase, "\033[1;31m", bgStyle)
+						cleanText = HighlightText(cleanText, searchPattern, ignoreCase, color.HighlightSearch, bgStyle)
 					}
 					if filterText != "" {
-						cleanText = HighlightText(cleanText, filterText, true, "\033[1;33;4m", bgStyle)
+						cleanText = HighlightText(cleanText, filterText, true, color.HighlightFilter, bgStyle)
 					}
 				}
 
-				buf.WriteString(fmt.Sprintf("%s%s %s  \033[33m%4d:\033[0m %s%s\033[K\r\n",
-					cursorPrefix, relNumStr, bgStyle, entry.MatchItem.Line, cleanText, resetStyle))
+				buf.WriteString(fmt.Sprintf("%s%s %s  %s%4d:%s %s%s%s\r\n",
+					cursorPrefix, relNumStr, bgStyle, color.FgYellow, entry.MatchItem.Line, color.Reset, cleanText, resetStyle, color.ClearLine))
 			}
 		}
 	}
 
 	// 3. STATUS BAR
-	modeBadge := "\033[1;30;42m NORMAL \033[0;48;5;236;37m"
+	modeBadge := fmt.Sprintf("%s NORMAL %s", color.BadgeNormal, color.StatusResetBg)
 	modeWidth := 8
 	if inFilterMode {
-		modeBadge = "\033[1;30;43m FILTER \033[0;48;5;236;37m"
+		modeBadge = fmt.Sprintf("%s FILTER %s", color.BadgeFilter, color.StatusResetBg)
 		modeWidth = 8
 	} else if inReplaceMode {
-		modeBadge = "\033[1;30;45m REPLACE \033[0;48;5;236;37m"
+		modeBadge = fmt.Sprintf("%s REPLACE %s", color.BadgeReplace, color.StatusResetBg)
 		modeWidth = 9
 	} else if replaceText != "" {
-		modeBadge = "\033[1;30;45m PREVIEW \033[0;48;5;236;37m"
+		modeBadge = fmt.Sprintf("%s PREVIEW %s", color.BadgeReplace, color.StatusResetBg)
 		modeWidth = 9
 	}
 
 	countBadge := ""
 	countWidth := 0
 	if numBuffer != "" {
-		countBadge = fmt.Sprintf(" \033[1;30;45m %s \033[0;48;5;236;37m", numBuffer)
+		countBadge = fmt.Sprintf(" %s %s %s", color.BadgeReplace, numBuffer, color.StatusResetBg)
 		countWidth = 3 + StrDisplayWidth(numBuffer)
 	}
 
@@ -251,11 +252,11 @@ func RenderTUI(
 	} else if len(entries) > 0 && cursor < len(entries) {
 		current := entries[cursor]
 		if current.IsHeader {
-			locStr = fmt.Sprintf(" 📁 %s", config.ShortenHome(current.FilePath))
+			locStr = fmt.Sprintf(" %s", config.ShortenHome(current.FilePath))
 		} else {
-			locStr = fmt.Sprintf(" 📁 %s:%d:%d", config.ShortenHome(current.FilePath), current.MatchItem.Line, current.MatchItem.Char+1)
+			locStr = fmt.Sprintf(" %s:%d:%d", config.ShortenHome(current.FilePath), current.MatchItem.Line, current.MatchItem.Char+1)
 			if excluded[current.ResultIdx] {
-				locStr += " \033[1;31m[REMOVED]\033[0;48;5;236;37m"
+				locStr += fmt.Sprintf(" %s[REMOVED]%s", color.FgBoldRed, color.StatusResetBg)
 			}
 		}
 	}
@@ -298,20 +299,22 @@ func RenderTUI(
 		statusSpaces = 1
 	}
 
-	buf.WriteString(fmt.Sprintf("\033[48;5;236;37m%s%s%s \033[K\033[0m\r\n",
-		statusLeft, strings.Repeat(" ", statusSpaces), statusRight))
+	buf.WriteString(fmt.Sprintf("%s%s%s%s %s%s\r\n",
+		color.StatusBarBg, statusLeft, strings.Repeat(" ", statusSpaces), statusRight, color.ClearLine, color.Reset))
 
 	// 4. COMMAND / HELP BAR
 	if inFilterMode {
-		buf.WriteString(fmt.Sprintf("\033[1;33mFILTER>\033[0m %s\033[41;1;37m \033[0m \033[90m(Enter/Esc: done, Backspace: del, Ctrl+U: clear)\033[0m\033[K", filterText))
+		buf.WriteString(fmt.Sprintf("%sFILTER>%s %s%s %s %s(Enter/Esc: done, Backspace: del, Ctrl+U: clear)%s%s",
+			color.FgBoldYellow, color.Reset, filterText, color.CursorBlock, color.Reset, color.FgGray, color.Reset, color.ClearLine))
 	} else if inReplaceMode {
-		buf.WriteString(fmt.Sprintf("\033[1;35mREPLACE>\033[0m %s\033[41;1;37m \033[0m \033[90m(Enter: apply, Tab: inspect list, Esc: cancel)\033[0m\033[K", replaceText))
+		buf.WriteString(fmt.Sprintf("%sREPLACE>%s %s%s %s %s(Enter: apply, Tab: inspect list, Esc: cancel)%s%s",
+			color.FgBoldMagenta, color.Reset, replaceText, color.CursorBlock, color.Reset, color.FgGray, color.Reset, color.ClearLine))
 	} else if replaceText != "" {
 		helpText := "[Tab/R:edit replace  Enter:apply  SPC:toggle  a:all  Esc:clear  e/o:open  q:quit]"
-		buf.WriteString(fmt.Sprintf("\033[90m%s\033[0m\033[K", TruncateDisplayWidthEnd(helpText, termWidth-2)))
+		buf.WriteString(fmt.Sprintf("%s%s%s%s", color.FgGray, TruncateDisplayWidthEnd(helpText, termWidth-2), color.Reset, color.ClearLine))
 	} else {
 		helpText := "[j/k:move  SPC:del line  R/Tab:replace  a:all  J/K:file  g/G:jump  pgup/dn  /:filter  e/o:open  q:quit]"
-		buf.WriteString(fmt.Sprintf("\033[90m%s\033[0m\033[K", TruncateDisplayWidthEnd(helpText, termWidth-2)))
+		buf.WriteString(fmt.Sprintf("%s%s%s%s", color.FgGray, TruncateDisplayWidthEnd(helpText, termWidth-2), color.Reset, color.ClearLine))
 	}
 
 	os.Stdout.Write(buf.Bytes())
@@ -441,11 +444,11 @@ func RunTUI(results []model.WigResultItem, searchPattern string, fileTypes []str
 				inReplaceMode = false
 				replacedCount, filesModified, err := replace.ApplyReplacement(results, excluded, searchPattern, replaceText, ignoreCase)
 				if err != nil {
-					statusNotice = fmt.Sprintf("\033[1;31m❌ Replace error: %v\033[0m", err)
+					statusNotice = fmt.Sprintf("%s❌ Replace error: %v%s", color.FgBoldRed, err, color.Reset)
 				} else if replacedCount > 0 {
-					statusNotice = fmt.Sprintf("\033[1;32m✓ Replaced %d occurrences in %d files\033[0m", replacedCount, filesModified)
+					statusNotice = fmt.Sprintf("%s✓ Replaced %d occurrences in %d files%s", color.FgBoldGreen, replacedCount, filesModified, color.Reset)
 				} else {
-					statusNotice = "\033[1;33mNo occurrences replaced\033[0m"
+					statusNotice = fmt.Sprintf("%sNo occurrences replaced%s", color.FgBoldYellow, color.Reset)
 				}
 				statusNoticeTime = time.Now()
 				replaceText = ""
@@ -748,11 +751,11 @@ func RunTUI(results []model.WigResultItem, searchPattern string, fileTypes []str
 			if replaceText != "" {
 				replacedCount, filesModified, err := replace.ApplyReplacement(results, excluded, searchPattern, replaceText, ignoreCase)
 				if err != nil {
-					statusNotice = fmt.Sprintf("\033[1;31m❌ Replace error: %v\033[0m", err)
+					statusNotice = fmt.Sprintf("%s❌ Replace error: %v%s", color.FgBoldRed, err, color.Reset)
 				} else if replacedCount > 0 {
-					statusNotice = fmt.Sprintf("\033[1;32m✓ Replaced %d occurrences in %d files\033[0m", replacedCount, filesModified)
+					statusNotice = fmt.Sprintf("%s✓ Replaced %d occurrences in %d files%s", color.FgBoldGreen, replacedCount, filesModified, color.Reset)
 				} else {
-					statusNotice = "\033[1;33mNo occurrences replaced\033[0m"
+					statusNotice = fmt.Sprintf("%sNo occurrences replaced%s", color.FgBoldYellow, color.Reset)
 				}
 				statusNoticeTime = time.Now()
 				replaceText = ""

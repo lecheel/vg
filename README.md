@@ -111,10 +111,10 @@ When multiple matches are found, `vgrep` enters the interactive alternate-screen
 
 ```text
  vgrep  filter: 
->  0 📁 ~/project/main.go
+>  0 ~/project/main.go
    1     12: func initialize() {
    2     48: func handleRequest() {
-   3 📁 ~/project/router.go
+   3 ~/project/router.go
    4      8: func registerRoutes() {
 
 [j/k, <num>j/k, J/K (files), g/G, / (filter), r (rgr replace), Enter/o (open), q (quit)]

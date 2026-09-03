@@ -6,6 +6,8 @@ import (
 	"os/exec"
 	"strconv"
 	"strings"
+
+	"vgrep/internal/color"
 )
 
 func GetTerminalSize() (int, int) {
@@ -61,15 +63,15 @@ func RestoreTerminal() {
 	cookedCmd := exec.Command("stty", "sane")
 	cookedCmd.Stdin = os.Stdin
 	_ = cookedCmd.Run()
-	fmt.Print("\033[0m\033[?25h")
+	fmt.Print(color.Reset + color.CursorShow)
 }
 
 func EnterAlternateScreen() {
-	fmt.Print("\033[?1049h\033[?25l\033[2J")
+	fmt.Print(color.AltScreenEnter + color.CursorHide + color.ClearScreen)
 }
 
 func ExitAlternateScreen() {
-	fmt.Print("\033[0m\033[?25h\033[?1049l")
+	fmt.Print(color.Reset + color.CursorShow + color.AltScreenExit)
 }
 
 func RuneWidth(r rune) int {
@@ -173,11 +175,11 @@ func HighlightText(text, pattern string, ignoreCase bool, highlightStyle, baseSt
 			buf.WriteString(text[lastIdx:matchStart])
 			buf.WriteString(highlightStyle)
 			buf.WriteString(text[matchStart:matchEnd])
-			buf.WriteString("\033[0m")
+			buf.WriteString(color.Reset)
 			buf.WriteString(baseStyle)
 			lastIdx = matchEnd
 		}
 		return buf.String()
 	}
-	return strings.ReplaceAll(text, pattern, fmt.Sprintf("%s%s\033[0m%s", highlightStyle, pattern, baseStyle))
+	return strings.ReplaceAll(text, pattern, fmt.Sprintf("%s%s%s%s", highlightStyle, pattern, color.Reset, baseStyle))
 }

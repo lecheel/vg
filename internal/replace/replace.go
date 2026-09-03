@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"strings"
 
+	"vgrep/internal/color"
 	"vgrep/internal/config"
 	"vgrep/internal/model"
 	"vgrep/internal/search"
@@ -31,7 +32,7 @@ func RunReplacer(pattern string, fileTypes []string, ignoreCase bool) error {
 		return cmd.Run()
 	}
 
-	fmt.Print("\033[1;36mEnter replacement string (rgr not found):\033[0m ")
+	fmt.Printf("%sEnter replacement string (rgr not found):%s ", color.FgBoldCyan, color.Reset)
 	reader := bufio.NewReader(os.Stdin)
 	replacement, _ := reader.ReadString('\n')
 	replacement = strings.TrimSpace(replacement)
@@ -46,14 +47,14 @@ func RunReplacer(pattern string, fileTypes []string, ignoreCase bool) error {
 	}
 	args = append(args, pattern)
 
-	fmt.Printf("\n\033[1;33m--- Replacement Preview (rg -r %q %q) ---\033[0m\n\n", replacement, pattern)
+	fmt.Printf("\n%s--- Replacement Preview (rg -r %q %q) ---%s\n\n", color.FgBoldYellow, replacement, pattern, color.Reset)
 	cmd := exec.Command("rg", args...)
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	_ = cmd.Run()
 
-	fmt.Print("\n\033[90mPress Enter to return to vgrep...\033[0m")
+	fmt.Printf("\n%sPress Enter to return to vgrep...%s", color.FgGray, color.Reset)
 	_, _ = reader.ReadString('\n')
 	return nil
 }

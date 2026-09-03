@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"vgrep/internal/color"
 	"vgrep/internal/config"
 	"vgrep/internal/model"
 )
@@ -128,9 +129,9 @@ func SelectHistoryPattern(root string, launchView func() string) string {
 	}
 
 	fmt.Printf("\nSaved searches for [%s]:\n", filepath.Base(root))
-	fmt.Printf("  \033[33m[0]\033[0m \033[36m%s\033[0m\n", viewLabel)
+	fmt.Printf("  %s[0]%s %s%s%s\n", color.FgYellow, color.Reset, color.FgCyan, viewLabel, color.Reset)
 	for i, it := range items {
-		fmt.Printf("  \033[33m[%d]\033[0m \033[36m(%s)\033[0m %s\n", i+1, FormatRelativeTime(it.Timestamp), it.Pattern)
+		fmt.Printf("  %s[%d]%s %s(%s)%s %s\n", color.FgYellow, i+1, color.Reset, color.FgCyan, FormatRelativeTime(it.Timestamp), color.Reset, it.Pattern)
 	}
 	fmt.Print("\nSelect index (Enter to cancel): ")
 	var input string
