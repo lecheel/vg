@@ -735,6 +735,134 @@ func highlightText(text, pattern string, ignoreCase bool, highlightStyle, baseSt
 	return strings.ReplaceAll(text, pattern, fmt.Sprintf("%s%s\033[0m%s", highlightStyle, pattern, baseStyle))
 }
 
+func replacePattern(line, pattern, replacement string, ignoreCase bool) string {
+	if !ignoreCase {
+		return strings.ReplaceAll(line, pattern, replacement)
+	}
+	lowerLine := strings.ToLower(line)
+	lowerPattern := strings.ToLower(pattern)
+	pLen := len(pattern)
+	if pLen == 0 {
+		return line
+	}
+	var buf strings.Builder
+	lastIdx := 0
+	for {
+		idx := strings.Index(lowerLine[lastIdx:], lowerPattern)
+		if idx == -1 {
+			buf.WriteString(line[lastIdx:])
+			break
+		}
+		buf.WriteString(line[lastIdx : lastIdx+idx])
+		buf.WriteString(replacement)
+		lastIdx = lastIdx + idx + pLen
+	}
+	return buf.String()
+}
+
+func runWgrepReplace(results []WigResultItem, excluded map[int]bool, pattern string, ignoreCase bool) ([]WigResultItem, error) {
+	var targetIndices []int
+	for i := range results {
+		if !excluded[i] {
+			targetIndices = append(targetIndices, i)
+		}
+	}
+
+	reader := bufio.NewReader(os.Stdin)
+
+	if len(targetIndices) == 0 {
+		fmt.Printf("\n\033[1;33mNo matches selected for replacement (all %d items are marked as skipped).\033[0m\n", len(results))
+		fmt.Print("\033[90mPress Enter to return to vgrep...\033[0m")
+		_, _ = reader.ReadString('\n')
+		return results, nil
+	}
+
+	// Group targets by file path
+	fileGroups := make(map[string][]int)
+	for _, idx := range targetIndices {
+		fileGroups[results[idx].FilePath] = append(fileGroups[results[idx].FilePath], idx)
+	}
+
+	fmt.Printf("\n\033[1;30;46m VGREP REPLACE (wgrep) \033[0m\n")
+	fmt.Printf("Pattern:   \033[1;31m%s\033[0m\n", pattern)
+	fmt.Printf("Selected:  \033[1;32m%d matches\033[0m across %d files (\033[1;33m%d skipped\033[0m)\n\n",
+		len(targetIndices), len(fileGroups), len(excluded))
+
+	fmt.Print("\033[1;36mEnter replacement string:\033[0m ")
+	replacement, err := reader.ReadString('\n')
+	if err != nil {
+		return results, err
+	}
+	replacement = strings.TrimRight(replacement, "\r\n")
+
+	fmt.Printf("\nApply replacement \033[1;31m%q\033[0m -> \033[1;32m%q\033[0m on %d matches? [y/N]: ",
+		pattern, replacement, len(targetIndices))
+	confirm, _ := reader.ReadString('\n')
+	confirm = strings.TrimSpace(strings.ToLower(confirm))
+	if confirm != "y" && confirm != "yes" {
+		fmt.Println("\033[90mReplacement canceled.\033[0m")
+		time.Sleep(500 * time.Millisecond)
+		return results, nil
+	}
+
+	replacedCount := 0
+	filesModified := 0
+
+	for filePath, indices := range fileGroups {
+		data, err := os.ReadFile(filePath)
+		if err != nil {
+			fmt.Printf("  ❌ Error reading %s: %v\n", shortenHome(filePath), err)
+			continue
+		}
+
+		info, err := os.Stat(filePath)
+		perm := os.FileMode(0644)
+		if err == nil {
+			perm = info.Mode()
+		}
+
+		hasCRLF := bytes.Contains(data, []byte("\r\n"))
+		normalized := strings.ReplaceAll(string(data), "\r\n", "\n")
+		lines := strings.Split(normalized, "\n")
+
+		fileModified := false
+		for _, idx := range indices {
+			lineIdx := results[idx].Line - 1
+			if lineIdx >= 0 && lineIdx < len(lines) {
+				orig := lines[lineIdx]
+				newLine := replacePattern(orig, pattern, replacement, ignoreCase)
+				if newLine != orig {
+					lines[lineIdx] = newLine
+					results[idx].Text = newLine
+					replacedCount++
+					fileModified = true
+				}
+			}
+		}
+
+		if fileModified {
+			sep := "\n"
+			if hasCRLF {
+				sep = "\r\n"
+			}
+			newContent := strings.Join(lines, sep)
+			if err := os.WriteFile(filePath, []byte(newContent), perm); err != nil {
+				fmt.Printf("  ❌ Error writing %s: %v\n", shortenHome(filePath), err)
+			} else {
+				filesModified++
+			}
+		}
+	}
+
+	_ = writeWigSession(results)
+
+	fmt.Printf("\n\033[1;32m✓ Successfully replaced %d occurrences in %d files.\033[0m\n", replacedCount, filesModified)
+	fmt.Print("\033[90mPress Enter to return to vgrep...\033[0m")
+	_, _ = reader.ReadString('\n')
+
+	return results, nil
+}
+
 func renderTUI(
 	entries []displayEntry,
 	groups []fileGroup,
@@ -746,6 +874,7 @@ func renderTUI(
 	ignoreCase bool,
 	inFilterMode bool,
 	numBuffer string,
+	excluded map[int]bool,
 ) {
 	termHeight, termWidth := getTerminalSize()
 	if termHeight < 5 {
@@ -793,12 +922,19 @@ func renderTUI(
 	}
 
 	matchCount := 0
+	skippedCount := 0
 	for _, e := range entries {
 		if !e.isHeader {
 			matchCount++
+			if excluded[e.resultIdx] {
+				skippedCount++
+			}
 		}
 	}
 	statsText := fmt.Sprintf("%d matches in %d files", matchCount, len(groups))
+	if skippedCount > 0 {
+		statsText = fmt.Sprintf("%d matches (%d skipped) in %d files", matchCount, skippedCount, len(groups))
+	}
 	titleRight := fmt.Sprintf("\033[90m%s\033[0m", statsText)
 	rightWidth := strDisplayWidth(statsText)
 
@@ -848,40 +984,68 @@ func renderTUI(
 		}
 
 		if entry.isHeader {
-			// Prefix: cursor(2) + rel(numWidth) + sp(1) + 📁(2) + sp(1) = numWidth + 6
+			allSkipped := true
+			matchInFile := false
+			for _, e := range entries {
+				if !e.isHeader && e.filePath == entry.filePath {
+					matchInFile = true
+					if !excluded[e.resultIdx] {
+						allSkipped = false
+						break
+					}
+				}
+			}
+
 			prefixWidth := numWidth + 6
 			maxPathLen := termWidth - prefixWidth - 2
+			if matchInFile && allSkipped {
+				maxPathLen -= 15 // space for "[all skipped]"
+			}
 			if maxPathLen < 10 {
 				maxPathLen = 10
 			}
 			displayPath := shortenHome(entry.filePath)
 			displayPath = truncateDisplayWidthStart(displayPath, maxPathLen)
 
-			buf.WriteString(fmt.Sprintf("%s%s %s\033[1;36m📁 %s\033[0m%s\033[K\r\n",
-				cursorPrefix, relNumStr, bgStyle, displayPath, resetStyle))
+			if matchInFile && allSkipped {
+				buf.WriteString(fmt.Sprintf("%s%s %s\033[90m📁 %s [all skipped]\033[0m%s\033[K\r\n",
+					cursorPrefix, relNumStr, bgStyle, displayPath, resetStyle))
+			} else {
+				buf.WriteString(fmt.Sprintf("%s%s %s\033[1;36m📁 %s\033[0m%s\033[K\r\n",
+					cursorPrefix, relNumStr, bgStyle, displayPath, resetStyle))
+			}
 		} else {
+			isSkipped := excluded[entry.resultIdx]
 			cleanText := strings.ReplaceAll(entry.matchItem.Text, "\t", "    ")
 			cleanText = strings.TrimRight(cleanText, "\r\n")
 
-			// Prefix: cursor(2) + rel(numWidth) + sp(1) + sp(2) + line(5) + sp(2) = numWidth + 12
 			prefixWidth := numWidth + 12
+			if isSkipped {
+				prefixWidth += 7 // space for "[skip] "
+			}
 			maxTextLen := termWidth - prefixWidth - 2
 			if maxTextLen < 10 {
 				maxTextLen = 10
 			}
 			cleanText = truncateDisplayWidthEnd(cleanText, maxTextLen)
 
-			// Highlight search pattern
-			if searchPattern != "" {
-				cleanText = highlightText(cleanText, searchPattern, ignoreCase, "\033[1;31m", bgStyle)
-			}
-			// Highlight filter query
-			if filterText != "" {
-				cleanText = highlightText(cleanText, filterText, true, "\033[1;33;4m", bgStyle)
-			}
+			if isSkipped {
+				// Dimmed text with [skip] badge
+				buf.WriteString(fmt.Sprintf("%s%s %s\033[90;31m[skip]\033[0m \033[90m%4d: %s\033[0m%s\033[K\r\n",
+					cursorPrefix, relNumStr, bgStyle, entry.matchItem.Line, cleanText, resetStyle))
+			} else {
+				// Highlight search pattern
+				if searchPattern != "" {
+					cleanText = highlightText(cleanText, searchPattern, ignoreCase, "\033[1;31m", bgStyle)
+				}
+				// Highlight filter query
+				if filterText != "" {
+					cleanText = highlightText(cleanText, filterText, true, "\033[1;33;4m", bgStyle)
+				}
 
-			buf.WriteString(fmt.Sprintf("%s%s %s  \033[33m%4d:\033[0m %s%s\033[K\r\n",
-				cursorPrefix, relNumStr, bgStyle, entry.matchItem.Line, cleanText, resetStyle))
+				buf.WriteString(fmt.Sprintf("%s%s %s  \033[33m%4d:\033[0m %s%s\033[K\r\n",
+					cursorPrefix, relNumStr, bgStyle, entry.matchItem.Line, cleanText, resetStyle))
+			}
 		}
 	}
 
@@ -962,10 +1126,7 @@ func renderTUI(
 	if inFilterMode {
 		buf.WriteString(fmt.Sprintf("\033[1;33mFILTER>\033[0m %s\033[41;1;37m \033[0m \033[90m(Enter/Esc: done, Backspace: del, Ctrl+U: clear)\033[0m\033[K", filterText))
 	} else {
-		helpText := "[j/k:move  J/K:file  <num>:jump  g/G:top/bot  pgup/dn  /:filter  Enter/o:open  q:quit]"
-		if hasExecutable("rgr") {
-			helpText = "[j/k:move  J/K:file  <num>:jump  g/G:top/bot  pgup/dn  /:filter  r:replace  Enter/o:open  q:quit]"
-		}
+		helpText := "[j/k:move  SPC:skip  R:replace  J/K:file  g/G:jump  pgup/dn  /:filter  Enter/o:open  q:quit]"
 		buf.WriteString(fmt.Sprintf("\033[90m%s\033[0m\033[K", truncateDisplayWidthEnd(helpText, termWidth-2)))
 	}
 
@@ -1027,6 +1188,7 @@ func runTUI(results []WigResultItem, searchPattern string, fileTypes []string, i
 
 	cursor := 0
 	viewportStart := 0
+	excluded := make(map[int]bool) // resultIdx -> true (marked as skip / not for replace)
 
 	enterAlternateScreen()
 	defer exitAlternateScreen()
@@ -1062,7 +1224,7 @@ func runTUI(results []WigResultItem, searchPattern string, fileTypes []string, i
 			viewportStart = 0
 		}
 
-		renderTUI(entries, groups, cursor, viewportStart, filter, searchPattern, fileTypes, ignoreCase, inFilterMode, numBuffer)
+		renderTUI(entries, groups, cursor, viewportStart, filter, searchPattern, fileTypes, ignoreCase, inFilterMode, numBuffer, excluded)
 
 		b, err := reader.ReadByte()
 		if err != nil {
@@ -1182,7 +1344,56 @@ func runTUI(results []WigResultItem, searchPattern string, fileTypes []string, i
 				cursor = 0
 			}
 
-		case 'r': // Launch rgr (find & replace) on searchPattern (only active if rgr exists)
+		case ' ': // Space: toggle mark as excluded ("not for replace")
+			if len(entries) == 0 || cursor >= len(entries) {
+				continue
+			}
+			target := entries[cursor]
+			if target.isHeader {
+				// Toggle all matches belonging to this file
+				allExcluded := true
+				var fileIndices []int
+				for _, e := range entries {
+					if !e.isHeader && e.filePath == target.filePath {
+						fileIndices = append(fileIndices, e.resultIdx)
+						if !excluded[e.resultIdx] {
+							allExcluded = false
+						}
+					}
+				}
+				for _, idx := range fileIndices {
+					excluded[idx] = !allExcluded
+				}
+			} else {
+				// Toggle single match and advance to next line for quick multi-toggling
+				excluded[target.resultIdx] = !excluded[target.resultIdx]
+				if cursor < len(entries)-1 {
+					cursor++
+				}
+			}
+			continue
+
+		case 'R': // Shift+R: wgrep-style replace on selected (non-skipped) matches
+			restoreTerminal()
+			exitAlternateScreen()
+
+			var replaceErr error
+			results, replaceErr = runWgrepReplace(results, excluded, searchPattern, ignoreCase)
+			if replaceErr == nil {
+				// Refresh displayed entries after replacement
+				entries, groups = buildEntries(filter)
+				if cursor >= len(entries) && len(entries) > 0 {
+					cursor = len(entries) - 1
+				}
+			}
+
+			// Resume TUI
+			enterAlternateScreen()
+			_, _ = setRawTerminal()
+			reader = bufio.NewReader(os.Stdin)
+			continue
+
+		case 'r': // Launch rgr (external find & replace tool) if installed
 			if hasExecutable("rgr") {
 				restoreTerminal()
 				exitAlternateScreen()
