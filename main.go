@@ -569,6 +569,15 @@ func getTerminalHeight() int {
 	return 24
 }
 
+func getPageSize() int {
+	// Screen height minus title header (1 line) and bottom bar / prompt (3 lines)
+	pageSize := getTerminalHeight() - 4
+	if pageSize < 5 {
+		pageSize = 5
+	}
+	return pageSize
+}
+
 func setRawTerminal() (*exec.Cmd, error) {
 	// Disable echo and canonical mode
 	rawCmd := exec.Command("stty", "raw", "-echo")
@@ -666,9 +675,9 @@ func renderTUI(entries []displayEntry, cursor int, filterText string, searchPatt
 
 	// Footer Help / Vim motion bar (hide 'r' if rgr is not found)
 	if hasExecutable("rgr") {
-		buf.WriteString("\033[K\r\n\033[90m[j/k, <num>j/k, J/K (files), g/G, / (filter), r (rgr replace), Enter/o (open), q (quit)]\033[0m\033[K")
+		buf.WriteString("\033[K\r\n\033[90m[j/k, <num>j/k, J/K (files), g/G, pgup/pgdn, / (filter), r (rgr replace), Enter/o (open), q (quit)]\033[0m\033[K")
 	} else {
-		buf.WriteString("\033[K\r\n\033[90m[j/k, <num>j/k, J/K (files), g/G, / (filter), Enter/o (open), q (quit)]\033[0m\033[K")
+		buf.WriteString("\033[K\r\n\033[90m[j/k, <num>j/k, J/K (files), g/G, pgup/pgdn, / (filter), Enter/o (open), q (quit)]\033[0m\033[K")
 	}
 
 	os.Stdout.Write(buf.Bytes())
@@ -896,6 +905,18 @@ func runTUI(results []WigResultItem, searchPattern string, fileTypes []string, i
 				cursor = len(entries) - 1
 			}
 
+		case 2, 21: // Ctrl+B, Ctrl+U: Page Up (screen height minus title and bar)
+			cursor -= getPageSize() * count
+			if cursor < 0 {
+				cursor = 0
+			}
+
+		case 6, 4: // Ctrl+F, Ctrl+D: Page Down (screen height minus title and bar)
+			cursor += getPageSize() * count
+			if cursor >= len(entries) {
+				cursor = len(entries) - 1
+			}
+
 		case '\r', '\n', 'o': // Open selection in editor and return back to TUI on quit
 			if len(entries) == 0 || cursor >= len(entries) {
 				continue
@@ -921,7 +942,7 @@ func runTUI(results []WigResultItem, searchPattern string, fileTypes []string, i
 			reader = bufio.NewReader(os.Stdin) // Re-create reader for fresh stdin state
 			continue
 
-		case 27: // Handle ANSI Arrow Keys
+		case 27: // Handle ANSI Arrow Keys & Page Up/Down
 			if reader.Buffered() >= 2 {
 				b1, _ := reader.ReadByte()
 				b2, _ := reader.ReadByte()
@@ -934,6 +955,28 @@ func runTUI(results []WigResultItem, searchPattern string, fileTypes []string, i
 						}
 					case 'B': // Down
 						cursor += count
+						if cursor >= len(entries) {
+							cursor = len(entries) - 1
+						}
+					case '5': // Page Up (\x1b[5~)
+						if reader.Buffered() > 0 {
+							b3, _ := reader.ReadByte()
+							if b3 != '~' {
+								_ = reader.UnreadByte()
+							}
+						}
+						cursor -= getPageSize() * count
+						if cursor < 0 {
+							cursor = 0
+						}
+					case '6': // Page Down (\x1b[6~)
+						if reader.Buffered() > 0 {
+							b3, _ := reader.ReadByte()
+							if b3 != '~' {
+								_ = reader.UnreadByte()
+							}
+						}
+						cursor += getPageSize() * count
 						if cursor >= len(entries) {
 							cursor = len(entries) - 1
 						}
