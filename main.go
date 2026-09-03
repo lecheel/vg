@@ -623,32 +623,86 @@ func exitAlternateScreen() {
 	fmt.Print("\033[0m\033[?25h\033[?1049l")
 }
 
-func truncateRunesEnd(s string, maxLen int) string {
-	if maxLen <= 0 {
-		return ""
+func runeWidth(r rune) int {
+	if r == 0 {
+		return 0
 	}
-	r := []rune(s)
-	if len(r) <= maxLen {
-		return s
+	if r < 32 || (r >= 0x7f && r < 0xa0) {
+		return 0
 	}
-	if maxLen <= 3 {
-		return string(r[:maxLen])
+	// Emojis and miscellaneous symbols (e.g. 📁 U+1F4C1)
+	if (r >= 0x1f300 && r <= 0x1faff) || (r >= 0x2600 && r <= 0x27bf) {
+		return 2
 	}
-	return string(r[:maxLen-1]) + "…"
+	// CJK / East Asian Wide
+	if (r >= 0x1100 && r <= 0x115f) ||
+		(r >= 0x2e80 && r <= 0xa4cf) ||
+		(r >= 0xac00 && r <= 0xd7a3) ||
+		(r >= 0xf900 && r <= 0xfaff) ||
+		(r >= 0xfe10 && r <= 0xfe19) ||
+		(r >= 0xfe30 && r <= 0xfe6f) ||
+		(r >= 0xff00 && r <= 0xff60) ||
+		(r >= 0xffe0 && r <= 0xffe6) {
+		return 2
+	}
+	return 1
 }
 
-func truncateRunesStart(s string, maxLen int) string {
-	if maxLen <= 0 {
+func strDisplayWidth(s string) int {
+	w := 0
+	for _, r := range s {
+		w += runeWidth(r)
+	}
+	return w
+}
+
+func truncateDisplayWidthEnd(s string, maxWidth int) string {
+	if maxWidth <= 0 {
 		return ""
 	}
-	r := []rune(s)
-	if len(r) <= maxLen {
+	if strDisplayWidth(s) <= maxWidth {
 		return s
 	}
-	if maxLen <= 3 {
-		return string(r[len(r)-maxLen:])
+	target := maxWidth - 1
+	if target <= 0 {
+		return "…"
 	}
-	return "…" + string(r[len(r)-(maxLen-1):])
+	curW := 0
+	var runes []rune
+	for _, r := range s {
+		rw := runeWidth(r)
+		if curW+rw > target {
+			break
+		}
+		curW += rw
+		runes = append(runes, r)
+	}
+	return string(runes) + "…"
+}
+
+func truncateDisplayWidthStart(s string, maxWidth int) string {
+	if maxWidth <= 0 {
+		return ""
+	}
+	if strDisplayWidth(s) <= maxWidth {
+		return s
+	}
+	target := maxWidth - 1
+	if target <= 0 {
+		return "…"
+	}
+	runes := []rune(s)
+	curW := 0
+	startIdx := len(runes)
+	for i := len(runes) - 1; i >= 0; i-- {
+		rw := runeWidth(runes[i])
+		if curW+rw > target {
+			break
+		}
+		curW += rw
+		startIdx = i
+	}
+	return "…" + string(runes[startIdx:])
 }
 
 func highlightText(text, pattern string, ignoreCase bool, highlightStyle, baseStyle string) string {
@@ -716,26 +770,26 @@ func renderTUI(
 	// =========================================================================
 	badge := "\033[1;30;46m VGREP \033[0m"
 	titleLeft := fmt.Sprintf("%s \033[1;37m%s\033[0m", badge, searchPattern)
-	leftRuneCount := 8 + len([]rune(searchPattern))
+	leftWidth := 7 + 1 + strDisplayWidth(searchPattern)
 
 	if ignoreCase {
 		titleLeft += " \033[90m[-i]\033[0m"
-		leftRuneCount += 5
+		leftWidth += 5
 	}
 	if len(fileTypes) > 0 {
 		typesStr := fmt.Sprintf("[%s]", strings.Join(fileTypes, ","))
 		titleLeft += fmt.Sprintf(" \033[90m%s\033[0m", typesStr)
-		leftRuneCount += 1 + len([]rune(typesStr))
+		leftWidth += 1 + strDisplayWidth(typesStr)
 	}
 
 	if inFilterMode {
 		filterBadge := fmt.Sprintf("  \033[1;33m/\033[0m\033[1;30;43m %s \033[0m\033[41;1;37m \033[0m", filterText)
 		titleLeft += filterBadge
-		leftRuneCount += 6 + len([]rune(filterText))
+		leftWidth += 6 + strDisplayWidth(filterText)
 	} else if filterText != "" {
 		filterBadge := fmt.Sprintf("  \033[1;33m/\033[0m\033[1;36m%s\033[0m", filterText)
 		titleLeft += filterBadge
-		leftRuneCount += 3 + len([]rune(filterText))
+		leftWidth += 3 + strDisplayWidth(filterText)
 	}
 
 	matchCount := 0
@@ -744,19 +798,24 @@ func renderTUI(
 			matchCount++
 		}
 	}
-	titleRight := fmt.Sprintf("\033[90m%d matches in %d files\033[0m", matchCount, len(groups))
-	rightRuneCount := len([]rune(fmt.Sprintf("%d matches in %d files", matchCount, len(groups))))
+	statsText := fmt.Sprintf("%d matches in %d files", matchCount, len(groups))
+	titleRight := fmt.Sprintf("\033[90m%s\033[0m", statsText)
+	rightWidth := strDisplayWidth(statsText)
 
-	spaceCount := termWidth - leftRuneCount - rightRuneCount
+	// Keep a safety margin of at least 2 columns to prevent edge-wrapping
+	maxTitleWidth := termWidth - 2
+	spaceCount := maxTitleWidth - leftWidth - rightWidth
 	if spaceCount > 0 {
 		buf.WriteString(fmt.Sprintf("%s%s%s\033[K\r\n", titleLeft, strings.Repeat(" ", spaceCount), titleRight))
 	} else {
-		buf.WriteString(fmt.Sprintf("%s\033[K\r\n", titleLeft))
+		buf.WriteString(fmt.Sprintf("%s \033[K\r\n", titleLeft))
 	}
 
-	// =========================================================================
-	// 2. MATCH ENTRIES VIEWPORT (Rows 2 to termHeight - 2)
-	// =========================================================================
+	numWidth := len(strconv.Itoa(len(entries)))
+	if numWidth < 2 {
+		numWidth = 2
+	}
+
 	for row := 0; row < maxRows; row++ {
 		entryIdx := viewportStart + row
 		if entryIdx >= len(entries) {
@@ -782,18 +841,21 @@ func renderTUI(
 			bgStyle = "\033[48;5;236m"
 		}
 
-		relNumStr := fmt.Sprintf("\033[90m%2d\033[0m", relNum)
+		// Hybrid line numbering: relative distance for other lines, absolute 1-based line number for current line
+		relNumStr := fmt.Sprintf("\033[90m%*d\033[0m", numWidth, relNum)
 		if entryIdx == cursor {
-			relNumStr = "\033[1;33m 0\033[0m"
+			relNumStr = fmt.Sprintf("\033[1;33m%*d\033[0m", numWidth, entryIdx+1)
 		}
 
 		if entry.isHeader {
-			maxPathLen := termWidth - 8
+			// Prefix: cursor(2) + rel(numWidth) + sp(1) + 📁(2) + sp(1) = numWidth + 6
+			prefixWidth := numWidth + 6
+			maxPathLen := termWidth - prefixWidth - 2
 			if maxPathLen < 10 {
 				maxPathLen = 10
 			}
 			displayPath := shortenHome(entry.filePath)
-			displayPath = truncateRunesStart(displayPath, maxPathLen)
+			displayPath = truncateDisplayWidthStart(displayPath, maxPathLen)
 
 			buf.WriteString(fmt.Sprintf("%s%s %s\033[1;36m📁 %s\033[0m%s\033[K\r\n",
 				cursorPrefix, relNumStr, bgStyle, displayPath, resetStyle))
@@ -801,12 +863,13 @@ func renderTUI(
 			cleanText := strings.ReplaceAll(entry.matchItem.Text, "\t", "    ")
 			cleanText = strings.TrimRight(cleanText, "\r\n")
 
-			prefixWidth := 14 // cursor(2) + rel(2) + sp(1) + line(5) + sp(2) + margin(2)
-			maxTextLen := termWidth - prefixWidth
+			// Prefix: cursor(2) + rel(numWidth) + sp(1) + sp(2) + line(5) + sp(2) = numWidth + 12
+			prefixWidth := numWidth + 12
+			maxTextLen := termWidth - prefixWidth - 2
 			if maxTextLen < 10 {
 				maxTextLen = 10
 			}
-			cleanText = truncateRunesEnd(cleanText, maxTextLen)
+			cleanText = truncateDisplayWidthEnd(cleanText, maxTextLen)
 
 			// Highlight search pattern
 			if searchPattern != "" {
@@ -826,17 +889,17 @@ func renderTUI(
 	// 3. STATUS BAR (Row termHeight - 1)
 	// =========================================================================
 	modeBadge := "\033[1;30;42m NORMAL \033[0;48;5;236;37m"
-	modeLen := 8
+	modeWidth := 8
 	if inFilterMode {
 		modeBadge = "\033[1;30;43m FILTER \033[0;48;5;236;37m"
-		modeLen = 8
+		modeWidth = 8
 	}
 
 	countBadge := ""
-	countLen := 0
+	countWidth := 0
 	if numBuffer != "" {
 		countBadge = fmt.Sprintf(" \033[1;30;45m %s \033[0;48;5;236;37m", numBuffer)
-		countLen = 3 + len([]rune(numBuffer))
+		countWidth = 3 + strDisplayWidth(numBuffer)
 	}
 
 	locStr := " No selection"
@@ -869,25 +932,28 @@ func renderTUI(
 		posStr = fmt.Sprintf("%d/%d", cursor+1, len(entries))
 	}
 
-	statusRight := fmt.Sprintf("%s %s ", posStr, pctStr)
-	statusRightLen := len([]rune(statusRight))
+	statusRight := fmt.Sprintf("%s %s", posStr, pctStr)
+	statusRightWidth := strDisplayWidth(statusRight)
 
-	availForLoc := termWidth - modeLen - countLen - statusRightLen - 2
+	// Keep a safety margin of at least 2 columns from the terminal edge to prevent wrapping
+	maxStatusWidth := termWidth - 2
+	availForLoc := maxStatusWidth - modeWidth - countWidth - statusRightWidth - 3
 	if availForLoc < 5 {
 		locStr = ""
 	} else {
-		locStr = truncateRunesStart(locStr, availForLoc)
+		locStr = truncateDisplayWidthStart(locStr, availForLoc)
 	}
 
 	statusLeft := fmt.Sprintf("%s%s%s", modeBadge, countBadge, locStr)
-	statusLeftLen := modeLen + countLen + len([]rune(locStr))
+	statusLeftWidth := modeWidth + countWidth + strDisplayWidth(locStr)
 
-	statusSpaces := termWidth - statusLeftLen - statusRightLen
-	if statusSpaces < 0 {
-		statusSpaces = 0
+	statusSpaces := maxStatusWidth - statusLeftWidth - statusRightWidth
+	if statusSpaces < 1 {
+		statusSpaces = 1
 	}
 
-	buf.WriteString(fmt.Sprintf("\033[48;5;236;37m%s%s%s\033[0m\033[K\r\n",
+	// Call \033[K while background color is still active to fill to margin, then reset before \r\n
+	buf.WriteString(fmt.Sprintf("\033[48;5;236;37m%s%s%s \033[K\033[0m\r\n",
 		statusLeft, strings.Repeat(" ", statusSpaces), statusRight))
 
 	// =========================================================================
@@ -896,11 +962,11 @@ func renderTUI(
 	if inFilterMode {
 		buf.WriteString(fmt.Sprintf("\033[1;33mFILTER>\033[0m %s\033[41;1;37m \033[0m \033[90m(Enter/Esc: done, Backspace: del, Ctrl+U: clear)\033[0m\033[K", filterText))
 	} else {
+		helpText := "[j/k:move  J/K:file  <num>:jump  g/G:top/bot  pgup/dn  /:filter  Enter/o:open  q:quit]"
 		if hasExecutable("rgr") {
-			buf.WriteString("\033[90m[j/k:move  J/K:file  <num>:jump  g/G:top/bot  pgup/dn  /:filter  r:replace  Enter/o:open  q:quit]\033[0m\033[K")
-		} else {
-			buf.WriteString("\033[90m[j/k:move  J/K:file  <num>:jump  g/G:top/bot  pgup/dn  /:filter  Enter/o:open  q:quit]\033[0m\033[K")
+			helpText = "[j/k:move  J/K:file  <num>:jump  g/G:top/bot  pgup/dn  /:filter  r:replace  Enter/o:open  q:quit]"
 		}
+		buf.WriteString(fmt.Sprintf("\033[90m%s\033[0m\033[K", truncateDisplayWidthEnd(helpText, termWidth-2)))
 	}
 
 	os.Stdout.Write(buf.Bytes())
@@ -1234,7 +1300,7 @@ func runTUI(results []WigResultItem, searchPattern string, fileTypes []string, i
 				cursor = len(entries) - 1
 			}
 
-		case '\r', '\n', 'o': // Open selection in editor and return back to TUI on quit
+		case '\r', '\n', 'o', 'e': // Open selection in editor and return back to TUI on quit
 			if len(entries) == 0 || cursor >= len(entries) {
 				continue
 			}
