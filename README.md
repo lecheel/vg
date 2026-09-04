@@ -4,8 +4,6 @@ A blazing-fast, project-aware interactive CLI search tool built on top of [ripgr
 
 `vgrep` bridges the gap between searching code and editing it by providing **Vim-motion navigation**, **scoped project history recall**, **on-the-fly ripgrep queries (`n`)**, **in-app & external find-and-replace**, and direct session integration with editors like **`wig`**, **`nvim`**, and **`vim`**.
 
-`vgrep` bridges the gap between searching code and editing it by providing **Vim-motion navigation**, **scoped project history recall**, **on-the-fly ripgrep queries (`n`)**, **in-app & external find-and-replace**, and direct session integration with editors like **`wig`**, **`nvim`**, and **`vim`**.
-
 ---
 
 ## Problem Statement
@@ -37,10 +35,6 @@ Running searches directly from terminal shells (`bash`, `zsh`) often turns into 
 - 📍 **Exact Column Positioning**: Jumps directly to the matched word and character column in editors like `wig`, `nvim`, `vim`, `helix`, `vscode`, `nano`, and `emacs`.
 - 🩺 **Environment Health Check (`--health`)**: Instantly inspect installed tooling (`rg`, `fzf`, `rgr`, `$EDITOR`, config editor) and configuration paths with clean `~` path abbreviation.
 - ⚙️ **Configurable (`~/.config/vgrep/config.toml`)**: Custom default editor, session cache path, and default literal search options.
-- 🔍 **New Search On-the-Fly (`n`)**: Press `n` anytime in the TUI to open an interactive prompt and run a new ripgrep query without exiting.
-- ✏️ **Built-in Find & Replace (`R` / `Tab`)**: Interactive in-place find and replace with real-time diff preview, match exclusions, and batch file updates.
-- 🔁 **External Replacer (`r` with `rgr`)**: Press `r` in the TUI to launch [repgrep / `rgr`](https://github.com/acheronfail/repgrep) (automatically hidden if `rgr` is not installed).
-- 🩺 **Environment Health Check (`--health`)**: Instantly inspect installed tooling (`rg`, `fzf`, `rgr`, `$EDITOR`) and configuration paths with clean `~` path abbreviation.
 - 🧠 **Project-Scoped History**: Running `vgrep` without arguments remembers and recalls past search patterns specific to the current Git repository or workspace.
 - 📂 **Auto-Detection & Quick Shorthands**:
   - Automatically identifies projects (`go.mod`, `Cargo.toml`, `pyproject.toml`, etc.).
@@ -248,9 +242,53 @@ When `vgrep -v` is invoked, `vgrep` skips running `ripgrep` entirely and loads t
 editor = "wig"
 
 # Custom path to shared search session JSON
-session_file = "~/.config/wig/rg_search.json"
-```
+## Configuration File (`~/.config/vgrep/config.toml`)
 
+# Default editor command
+editor = "wig"
+
+# Custom path to shared search session JSON
+session_file = "~/.config/wig/rg_search.json"
+
+---
+
+## Acknowledgements & Citations
+
+`vgrep` stands on the shoulders of remarkable open-source projects. Special thanks to the authors of:
+
+### 1. ripgrep (`rg`)
+- **Author**: Andrew Gallant ([@BurntSushi](https://github.com/BurntSushi))
+- **Repository**: [https://github.com/BurntSushi/ripgrep](https://github.com/BurntSushi/ripgrep)
+- **Role**: `vgrep` relies directly on `ripgrep` as its core search engine, leveraging its blazing speed, multithreaded directory traversal, automatic `.gitignore` parsing, and structured NDJSON output stream.
+
+@software{gallant_ripgrep_2016,
+  author       = {Andrew Gallant},
+  title        = {ripgrep: A line-oriented search tool that recursively searches directories for a regex pattern},
+  year         = {2016},
+  publisher    = {GitHub},
+  journal      = {GitHub repository},
+  howpublished = {\url{https://github.com/BurntSushi/ripgrep}}
+}
+
+### 2. repgrep (`rgr`)
+- **Author**: [@acheronfail](https://github.com/acheronfail)
+- **Repository**: [https://github.com/acheronfail/repgrep](https://github.com/acheronfail/repgrep)
+- **Role**: Provides the full-screen interactive regex find-and-replace replacer launched directly from within `vgrep` via the `r` key shortcut.
+
+@software{acheronfail_repgrep_2021,
+  author       = {acheronfail},
+  title        = {repgrep: An interactive replacer for ripgrep},
+  year         = {2021},
+  publisher    = {GitHub},
+  journal      = {GitHub repository},
+  howpublished = {\url{https://github.com/acheronfail/repgrep}}
+}
+
+---
+
+## License
+
+MIT License. Feel free to use and customize for your workflows!
 ---
 
 ## License
