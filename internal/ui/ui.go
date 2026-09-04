@@ -362,7 +362,6 @@ func RenderTUI(
 				{"a", "all"},
 				{"J/K", "file"},
 				{"g/G", "jump"},
-				{"pgup/dn", ""},
 				{"/", "filter"},
 				{"e/o", "open"},
 				{"q", "quit"},
@@ -376,7 +375,6 @@ func RenderTUI(
 				{"a", "all"},
 				{"J/K", "file"},
 				{"g/G", "jump"},
-				{"pgup/dn", ""},
 				{"/", "filter"},
 				{"e/o", "open"},
 				{"q", "quit"},
@@ -832,7 +830,7 @@ func RunTUI(results []model.WigResultItem, searchPattern string, fileTypes []str
 				}
 			}
 
-		case 'K', 'h':
+		case 'K', 'L', 'h':
 			for i := 0; i < count; i++ {
 				found := false
 				for idx := len(groups) - 1; idx >= 0; idx-- {
