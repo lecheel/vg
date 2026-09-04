@@ -5,7 +5,7 @@ GO ?= go
 GOFLAGS ?=
 LDFLAGS ?= -s -w
 
-.PHONY: all build run test test-race test-cover fmt vet lint clean install uninstall health help
+.PHONY: all build run test test-race test-cover fmt vet lint clean install uninstall health manual help
 
 # Default target
 all: build
@@ -69,10 +69,27 @@ uninstall:
 	@echo "==> Removing $(BINARY_NAME) from $(BINDIR)..."
 	rm -f $(BINDIR)/$(BINARY_NAME)
 
-## clean: Remove build artifacts and coverage files
+## manual: Compile LaTeX documentation to manual.pdf
+manual:
+	@if command -v pdflatex >/dev/null 2>&1; then \
+		echo "==> Compiling manual.tex with pdflatex..."; \
+		pdflatex -interaction=nonstopmode manual.tex >/dev/null && \
+		pdflatex -interaction=nonstopmode manual.tex >/dev/null; \
+		echo "==> Generated manual.pdf"; \
+	elif command -v pdftex >/dev/null 2>&1; then \
+		echo "==> Compiling manual.tex with pdftex..."; \
+		pdftex -interaction=nonstopmode manual.tex >/dev/null && \
+		pdftex -interaction=nonstopmode manual.tex >/dev/null; \
+		echo "==> Generated manual.pdf"; \
+	else \
+		echo "Neither pdflatex nor pdftex found, skipping manual compilation (install via texlive/mactex)"; \
+	fi
+
+## clean: Remove build artifacts, coverage, and LaTeX files
 clean:
 	@echo "==> Cleaning build artifacts..."
 	rm -f $(BINARY_NAME) coverage.out
+	rm -f manual.aux manual.log manual.out manual.toc manual.pdf
 
 ## help: Show this help message
 help:

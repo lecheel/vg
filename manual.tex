@@ -1,0 +1,454 @@
+%&pdflatex
+\documentclass[11pt,a4paper]{article}
+
+\usepackage[margin=1in,headheight=14pt]{geometry}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{microtype}
+\usepackage{lmodern}
+\usepackage{amsmath,amssymb}
+\usepackage{booktabs}
+\usepackage{array}
+\usepackage{tabularx}
+\usepackage{longtable}
+\usepackage{enumitem}
+\usepackage{fancyhdr}
+\usepackage[dvipsnames,table]{xcolor}
+\usepackage{listings}
+\usepackage[colorlinks=true,linkcolor=MidnightBlue,urlcolor=NavyBlue,citecolor=ForestGreen]{hyperref}
+
+% Document metadata
+\newcommand{\toolname}{\texttt{vgrep}}
+\newcommand{\toolversion}{v1.0.0}
+
+% Header & Footer
+\pagestyle{fancy}
+\fancyhf{}
+\fancyhead[L]{\textsc{\toolname\ Manual}}
+\fancyhead[R]{\nouppercase{\leftmark}}
+\fancyfoot[C]{\thepage}
+\renewcommand{\headrulewidth}{0.4pt}
+\renewcommand{\footrulewidth}{0.2pt}
+
+% Section styling (pure standard LaTeX, no titlesec dependency required)
+\makeatletter
+\renewcommand{\section}{\@startsection{section}{1}{\z@}%
+  {-3.5ex \@plus -1ex \@minus -.2ex}%
+  {2.3ex \@plus .2ex}%
+  {\normalfont\Large\bfseries\color{MidnightBlue}}}
+\renewcommand{\subsection}{\@startsection{subsection}{2}{\z@}%
+  {-3.25ex \@plus -1ex \@minus -.2ex}%
+  {1.5ex \@plus .2ex}%
+  {\normalfont\large\bfseries\color{RoyalBlue}}}
+\renewcommand{\subsubsection}{\@startsection{subsubsection}{3}{\z@}%
+  {-3.25ex \@plus -1ex \@minus -.2ex}%
+  {1.5ex \@plus .2ex}%
+  {\normalfont\normalsize\bfseries\color{CadetBlue}}}
+
+% Ensure vertical mode across TOC generation to prevent horizontal-mode \addvspace errors
+\renewcommand\tableofcontents{%
+  \par
+  \section*{\contentsname
+    \@mkboth{\MakeUppercase\contentsname}{\MakeUppercase\contentsname}}%
+  \par
+  \@starttoc{toc}%
+  \par
+}
+
+% Safeguard TOC entries so \addvspace always runs in vertical mode
+\let\orig@l@section\l@section
+\renewcommand*\l@section[2]{\par\orig@l@section{#1}{#2}}
+\let\orig@l@subsection\l@subsection
+\renewcommand*\l@subsection[2]{\par\orig@l@subsection{#1}{#2}}
+\let\orig@l@subsubsection\l@subsubsection
+\renewcommand*\l@subsubsection[2]{\par\orig@l@subsubsection{#1}{#2}}
+\makeatother
+
+% JSON language definition for listings
+\lstdefinelanguage{json}{
+    string=[s]{"}{"},
+    stringstyle=\color{OliveGreen},
+    comment=[l]{//},
+    morecomment=[s]{/*}{*/},
+    commentstyle=\color{gray}\itshape,
+    literate=
+     *{:}{{{\color{MidnightBlue}{:}}}}{1}
+      {,}{{{\color{MidnightBlue}{,}}}}{1}
+      {\{}{{{\color{RoyalBlue}{\{}}}}{1}
+      {\}}{{{\color{RoyalBlue}{\}}}}}{1}
+      {[}{{{\color{RoyalBlue}{[}}}}{1}
+      {]}{{{\color{RoyalBlue}{]}}}}{1},
+}
+
+% Listings configuration
+\lstdefinestyle{codeblock}{
+    backgroundcolor=\color{black!4},
+    basicstyle=\small\ttfamily,
+    breaklines=true,
+    breakatwhitespace=true,
+    frame=single,
+    rulecolor=\color{black!15},
+    numbers=none,
+    keywordstyle=\bfseries\color{RoyalBlue},
+    commentstyle=\itshape\color{gray},
+    stringstyle=\color{OliveGreen},
+    showstringspaces=false,
+    tabsize=4
+}
+\lstset{style=codeblock}
+
+% Portable callout boxes (standard xcolor + minipage, no tcolorbox dependency required)
+\newenvironment{callout}[2][MidnightBlue]{%
+  \par\vspace{0.6em}\noindent
+  \setlength{\fboxsep}{8pt}%
+  \setlength{\fboxrule}{0.8pt}%
+  \fcolorbox{#1!50}{#1!4}{%
+    \begin{minipage}{\dimexpr\linewidth-2\fboxsep-2\fboxrule\relax}%
+      {\bfseries\color{#1}#2}\par\vspace{0.4em}\small
+}{%
+    \end{minipage}%
+  }\par\vspace{0.6em}%
+}
+
+\newenvironment{infobox}[1][Note]{\begin{callout}[MidnightBlue]{#1}}{\end{callout}}
+\newenvironment{warnbox}[1][Warning]{\begin{callout}[RedOrange]{#1}}{\end{callout}}
+\newenvironment{tipbox}[1][Pro Tip]{\begin{callout}[ForestGreen]{#1}}{\end{callout}}
+
+% Keystroke macro
+\newcommand{\keys}[1]{\fcolorbox{gray!40}{gray!10}{\small\texttt{\bfseries #1}}}
+
+\begin{document}
+
+\begin{titlepage}
+    \centering
+    \vspace*{1.5cm}
+    
+    {\Huge\bfseries\color{MidnightBlue} \toolname\ Manual\par}
+    \vspace{0.4cm}
+    {\Large\itshape Fast, Interactive, Project-Aware CLI Search and Refactoring Tool\par}
+    \vspace{0.8cm}
+    {\textsc{Version \toolversion}\par}
+    
+    \vspace{1.2cm}
+    \begin{center}
+    \setlength{\fboxsep}{12pt}%
+    \setlength{\fboxrule}{0.8pt}%
+    \fcolorbox{black!25}{black!3}{%
+        \begin{minipage}{0.82\textwidth}
+            \centering
+            \texttt{\$ vgrep handleRequest\_fn}\\[0.25cm]
+            \texttt{\$ vgrep --go "type .* struct"}\\[0.25cm]
+            \texttt{\$ vgrep -v}
+        \end{minipage}%
+    }
+    \end{center}
+    
+    \vspace{1.5cm}
+    \begin{abstract}
+        \noindent
+        \toolname\ bridges terminal-based code search and high-speed editing. Built directly on top of ripgrep (\texttt{rg}), it circumvents shell quoting friction via an in-TUI raw input prompt, provides full Vim-motion navigation across search matches, supports granular in-place find-and-replace, and dispatches directly into editors with exact line and column coordinates.
+    \end{abstract}
+    
+    \vfill
+    {\small Compiled: \today\par}
+\end{titlepage}
+
+\tableofcontents
+\newpage
+
+\section{Introduction and Architecture}
+\subsection{Core Philosophy}
+\toolname\ is designed around four core operational principles:
+\begin{itemize}[leftmargin=1.5em]
+    \item \textbf{Frictionless Navigation}: Provide native Vim motions (\keys{j}, \keys{k}, \keys{J}, \keys{K}, \keys{g}, \keys{G}, counts, and relative numbers) for fluid movement across matches.
+    \item \textbf{Direct Raw Input}: Eliminate shell quoting friction by reading keystrokes in raw terminal mode (\keys{n}), allowing arbitrary regex, spaces, and quotation marks without shell escaping.
+    \item \textbf{Scoped Project Awareness}: Track search patterns automatically scoped to the active workspace or Git repository.
+    \item \textbf{Exact Editor Positioning}: Seamlessly open editors with column-level precision and return directly to the search session upon exit.
+\end{itemize}
+
+\subsection{The Shell Escaping Dilemma}
+Standard terminal pipelines involving \texttt{rg}, \texttt{grep}, or \texttt{find} suffer from intrinsic shell interpretation overhead:
+\begin{itemize}[leftmargin=1.5em]
+    \item \textbf{Eaten Quotations}: Shells (\texttt{bash}, \texttt{zsh}) strip or expand single (\texttt{'}) and double (\texttt{"}) quotes before passing arguments to executables. Searching for JSON snippets or string literals (e.g., \texttt{\{"key": "val"\}}) demands nested escaping.
+    \item \textbf{Space Splitting}: Phrases with whitespace trigger parameter splitting unless strictly enclosed in quotes.
+    \item \textbf{Expansion Collisions}: Metacharacters like \texttt{\$}, \texttt{!}, \texttt{\`{}}, and \texttt{\textbackslash} trigger history or variable expansions.
+\end{itemize}
+
+\toolname\ resolves this by reading keystrokes directly in terminal raw mode (\texttt{stty raw -echo}) inside its interactive Text User Interface (TUI). Characters entered during interactive search prompts (\keys{n}) are received verbatim without shell preprocessing.
+
+\subsection{Architectural Overview}
+The system architecture comprises five primary subsystems:
+\begin{enumerate}[leftmargin=1.5em]
+    \item \textbf{Ripgrep Execution Engine}: Subprocesses \texttt{rg} with \texttt{--json} and streams structured match records via standard output pipes.
+    \item \textbf{Session and Quickfix Exporter}: Converts NDJSON streams into a clean JSON array written to \texttt{\textasciitilde/.config/wig/rg\_search.json} for cross-tool interoperability with editors such as \texttt{wig}.
+    \item \textbf{Terminal Driver and Line Editor}: Handles alternate screen buffers (\texttt{\textbackslash033[?1049h}), raw terminal state restoration, SIGWINCH terminal resizing, and rune-level cursor manipulation.
+    \item \textbf{Interactive Find \& Replace Engine}: Performs in-memory previewing and atomic file writes for batch refactoring.
+    \item \textbf{Project-Aware History Store}: Automatically detects project roots (\texttt{.git}, \texttt{go.mod}, \texttt{Cargo.toml}, etc.) and manages localized query frequencies.
+\end{enumerate}
+
+\section{Installation and Dependencies}
+\subsection{System Prerequisites}
+\begin{table}[h!]
+\centering
+\small
+\begin{tabularx}{\textwidth}{llX}
+\toprule
+\textbf{Dependency} & \textbf{Requirement} & \textbf{Functionality} \\
+\midrule
+\texttt{rg} (ripgrep) & \textbf{Mandatory} & Core regex search engine and file scanning \\
+Go $\ge 1.25.0$ & Build only & Compiling from source code \\
+\texttt{fzf} & Optional & Fuzzy picker for query history \\
+\texttt{rgr} (repgrep) & Optional & External regex replace mode (\keys{r}) \\
+\texttt{wig} / \texttt{nvim} / \texttt{vim} & Recommended & Text editor for match jumps and quickfix navigation \\
+\bottomrule
+\end{tabularx}
+\caption{System dependencies and requirements}
+\end{table}
+
+\subsection{Building from Source}
+Clone the repository and compile via the provided \texttt{Makefile}:
+\begin{lstlisting}[language=bash]
+git clone https://github.com/your-username/vgrep.git
+cd vgrep
+make build
+sudo make install PREFIX=/usr/local
+\end{lstlisting}
+
+Verify the installation using the integrated health inspection command:
+\begin{lstlisting}[language=bash]
+vgrep --health
+\end{lstlisting}
+
+\section{Command Line Interface (CLI)}
+\subsection{Command Syntax}
+\begin{lstlisting}[language=bash]
+vgrep [FLAGS] [SEARCH_PATTERN]
+\end{lstlisting}
+
+\subsection{Command Line Flags}
+\begin{table}[h!]
+\centering
+\small
+\begin{tabularx}{\textwidth}{llX}
+\toprule
+\textbf{Flag} & \textbf{Alias} & \textbf{Description} \\
+\midrule
+\texttt{-i} & \texttt{--ignore-case} & Execute case-insensitive search. \\
+\texttt{-v} & \texttt{--view} & View matches from the previous session without re-scanning. \\
+\texttt{-e} & \texttt{--edit} & Open \texttt{\textasciitilde/.config/vgrep/config.toml} in configured editor. \\
+\texttt{--health} & & Inspect dependencies, tool versions, and configuration paths. \\
+\texttt{--init} & & Purge history file and cached search session. \\
+\texttt{--fzf} & & Force fallback to the \texttt{fzf} interface instead of the full TUI. \\
+\midrule
+\texttt{--go} & & Limit search to Go source files (\texttt{*.go}). \\
+\texttt{--rs} & & Limit search to Rust source files (\texttt{*.rs}). \\
+\texttt{--py} & & Limit search to Python source files (\texttt{*.py}). \\
+\texttt{--cc} & & Limit search to C/C++ source files (\texttt{*.c}, \texttt{*.cpp}, \texttt{*.h}, etc.). \\
+\texttt{--dart} & & Limit search to Dart source files (\texttt{*.dart}). \\
+\texttt{--swift} & & Limit search to Swift source files (\texttt{*.swift}). \\
+\bottomrule
+\end{tabularx}
+\caption{Command line flag reference}
+\end{table}
+
+\subsection{Function Shorthand Expansion (\texttt{\_fn})}
+Appending the \texttt{\_fn} suffix to any search query triggers automatic language-aware keyword conversion based on detected project root artifacts:
+\begin{itemize}[leftmargin=1.5em]
+    \item If \texttt{go.mod} is discovered or \texttt{--go} is supplied:
+    \begin{center}
+    \texttt{vgrep handleRequest\_fn} $\;\longrightarrow\;$ \texttt{"func handleRequest"}
+    \end{center}
+    \item In Rust projects or generic workspaces:
+    \begin{center}
+    \texttt{vgrep handleRequest\_fn} $\;\longrightarrow\;$ \texttt{"fn handleRequest"}
+    \end{center}
+\end{itemize}
+
+\subsection{Single Match Auto-Jump}
+When a search query yields \textbf{exactly one match} across the entire project, \toolname\ skips TUI presentation and directly opens the configured editor at the exact line and column of the match.
+
+\section{Interactive TUI Reference}
+When multiple matches are identified, \toolname\ launches an alternate screen TUI.
+
+\subsection{Screen Layout}
+The interface is divided into four functional zones:
+\begin{enumerate}[leftmargin=1.5em]
+    \item \textbf{Title Bar}: Shows active query, flags (\texttt{[-i]}, \texttt{[-F]}), language filters, filter substring, and aggregate match/file counters.
+    \item \textbf{Viewport}: Scrollable list of matched files (headers) and individual match lines with relative line numbering and syntax highlights.
+    \item \textbf{Status Line}: Mode indicator (\texttt{NORMAL}, \texttt{SEARCH}, \texttt{FILTER}, \texttt{REPLACE}, \texttt{PREVIEW}), count buffers, selected file/line/column, and viewport position.
+    \item \textbf{Command \& Help Bar}: Key bindings and dynamic interactive prompts.
+\end{enumerate}
+
+\subsection{Normal Mode Keybindings}
+\begin{table}[h!]
+\centering
+\small
+\begin{tabularx}{\textwidth}{lX}
+\toprule
+\textbf{Key} & \textbf{Action} \\
+\midrule
+\keys{j} / \keys{k} & Move selection cursor down / up by 1 entry. \\
+\keys{<count>j} / \keys{<count>k} & Move selection cursor down / up by \texttt{<count>} entries (e.g., \keys{5j}). \\
+\keys{J} / \keys{l} & Jump forward to the first match of the next file. \\
+\keys{K} / \keys{h} / \keys{L} & Jump backward to the first match of the previous file. \\
+\keys{g} / \keys{<count>g} & Jump to the first entry (row 0) or to absolute row \texttt{<count>}. \\
+\keys{G} / \keys{<count>G} & Jump to the last entry or to absolute row \texttt{<count>}. \\
+\keys{Ctrl+D} / \keys{Ctrl+F} & Page down by viewport height. \\
+\keys{Ctrl+U} / \keys{Ctrl+B} & Page up by viewport height. \\
+\keys{Enter} / \keys{o} / \keys{e} & Open selected entry in editor at line and column. \\
+\keys{SPC} (Space) & Toggle inclusion/exclusion of current match or entire file. \\
+\keys{a} & Toggle inclusion/exclusion for \textbf{all} matches across all files. \\
+\keys{/} & Enter incremental in-memory live filter mode. \\
+\keys{c} & Clear active live filter. \\
+\keys{n} & Open interactive prompt for a new ripgrep search query. \\
+\keys{F} & Toggle between literal string search (\texttt{-F}) and regular expression search. \\
+\keys{Alt+i} & Toggle case-sensitivity (\texttt{-i}) on the fly. \\
+\keys{Tab} / \keys{R} & Enter interactive in-app Find \& Replace mode. \\
+\keys{r} & Launch external \texttt{rgr} (repgrep) interactive replacer (if installed). \\
+\keys{q} / \keys{Ctrl+C} & Cleanly restore terminal and exit. \\
+\bottomrule
+\end{tabularx}
+\caption{Normal mode navigation and command matrix}
+\end{table}
+
+\subsection{Search Prompt Mode (\keys{n})}
+Pressing \keys{n} in normal mode presents the search prompt:
+\begin{itemize}[leftmargin=1.5em]
+    \item Type search patterns freely without shell quotation or space escapes.
+    \item \keys{Alt+i}: Toggle case-sensitivity flag \texttt{[-i]} dynamically.
+    \item \keys{Enter}: Run ripgrep, record query to project history, and refresh TUI.
+    \item \keys{Esc} / \keys{Ctrl+C}: Dismiss prompt without altering active results.
+\end{itemize}
+
+\subsection{Live Filter Mode (\keys{/})}
+Filter mode narrows displayed results in-memory without invoking \texttt{rg}:
+\begin{itemize}[leftmargin=1.5em]
+    \item Substring filtering matches against both file paths and line contents.
+    \item \keys{\(\uparrow\)} / \keys{\(\downarrow\)}: Navigate matches while keeping the filter prompt open.
+    \item \keys{Ctrl+U}: Wipe current filter input.
+    \item \keys{Enter} / \keys{Esc}: Confirm filtered view and return to Normal mode.
+\end{itemize}
+
+\section{Find and Replace Workflow}
+\subsection{Interactive In-Place Replacement (\keys{Tab} / \keys{R})}
+\toolname\ features a native refactoring engine:
+\begin{enumerate}[leftmargin=1.5em]
+    \item \textbf{Trigger}: Press \keys{Tab} or \keys{R} in Normal mode.
+    \item \textbf{Input}: Type the replacement string in the \texttt{REPLACE>} prompt.
+    \item \textbf{Inspect (\keys{Tab})}: Switch to \texttt{PREVIEW} mode. Matching text highlights with substitution previews in green (\textcolor{ForestGreen}{\texttt{HighlightSubst}}).
+    \item \textbf{Exclusion}: Use \keys{SPC} on individual matches or headers (or \keys{a} for all) to mark entries with strikethrough red badges (\texttt{-[REMOVED]}). Excluded lines remain untouched.
+    \item \textbf{Commit (\keys{Enter})}: Writes changes directly to disk preserving original file line-endings (CRLF or LF) and file permissions. Updated results are immediately refreshed in the TUI.
+\end{enumerate}
+
+\subsection{External Replacer Integration (\keys{r})}
+When \texttt{rgr} (repgrep) is installed in \texttt{\$PATH}, pressing \keys{r} temporarily suspends the TUI and launches \texttt{rgr} with current pattern and file type filters. When \texttt{rgr} exits, \toolname\ resumes seamlessly.
+
+\section{Editor Integration}
+\subsection{Command Formatting by Editor}
+\toolname\ inspects the executable name of your configured editor and formats command-line arguments to position the cursor at the exact match line and column:
+
+\begin{table}[h!]
+\centering
+\small
+\begin{tabularx}{\textwidth}{llX}
+\toprule
+\textbf{Editor} & \textbf{Command Pattern} & \textbf{Format Example} \\
+\midrule
+\texttt{wig} & \texttt{wig <file> +<line>:<col>} & \texttt{wig main.go +42:16} \\
+\texttt{nvim} / \texttt{vim} / \texttt{vi} & \texttt{vim "+call cursor(<line>, <col>)" <file>} & \texttt{nvim "+call cursor(42, 16)" main.go} \\
+\texttt{code} (VS Code) & \texttt{code -g <file>:<line>:<col>} & \texttt{code -g main.go:42:16} \\
+\texttt{hx} / \texttt{helix} & \texttt{hx <file>:<line>:<col>} & \texttt{hx main.go:42:16} \\
+\texttt{nano} & \texttt{nano +<line>,<col> <file>} & \texttt{nano +42,16 main.go} \\
+\texttt{emacs} & \texttt{emacs +<line>:<col> <file>} & \texttt{emacs +42:16 main.go} \\
+Generic Fallback & \texttt{<editor> +<line> <file>} & \texttt{subl +42 main.go} \\
+\bottomrule
+\end{tabularx}
+\caption{Editor column positioning protocol}
+\end{table}
+
+\subsection{Editor Resolution Hierarchy}
+The active editor is resolved via the following sequence:
+\begin{enumerate}[leftmargin=1.5em]
+    \item The \texttt{editor} key in \texttt{\textasciitilde/.config/vgrep/config.toml} (if executable exists in \texttt{\$PATH}).
+    \item The system \texttt{\$EDITOR} environment variable (if executable exists).
+    \item Auto-probed binaries in priority: \texttt{wig} $\longrightarrow$ \texttt{nvim} $\longrightarrow$ \texttt{vim}.
+    \item Fallback default: \texttt{"vim"}.
+\end{enumerate}
+
+\subsection{Shared Session File Format (\texttt{rg\_search.json})}
+Every search writes a structured array of match records to the session file (default \texttt{\textasciitilde/.config/wig/rg\_search.json}):
+\begin{lstlisting}[language=json]
+[
+  {
+    "file_path": "/home/user/project/main.go",
+    "line": 42,
+    "char": 15,
+    "text": "\tkeys := wig.NewKeyHandler()\n"
+  }
+]
+\end{lstlisting}
+
+This shared file can be parsed by editors or loaded back into \toolname\ via:
+\begin{lstlisting}[language=bash]
+vgrep -v
+\end{lstlisting}
+
+\section{Configuration Specification}
+The configuration file is located at \texttt{\textasciitilde/.config/vgrep/config.toml}. It can be edited directly using \texttt{vgrep -e}.
+
+\begin{lstlisting}[language=bash]
+# ~/.config/vgrep/config.toml
+
+# Preferred editor executable name or absolute path
+editor = "wig"
+
+# Target path for quickfix session JSON export
+session_file = "~/.config/wig/rg_search.json"
+
+# Enable literal matching (-F) by default
+fixed_strings = false
+\end{lstlisting}
+
+\begin{table}[h!]
+\centering
+\small
+\begin{tabularx}{\textwidth}{llX}
+\toprule
+\textbf{Key} & \textbf{Type} & \textbf{Semantics} \\
+\midrule
+\texttt{editor} & string & Executable name or path for opening files. \\
+\texttt{session\_file} & string & File path for quickfix session export (supports \texttt{\textasciitilde} expansion). \\
+\texttt{fixed\_strings} & boolean & When \texttt{true}, searches use literal mode (\texttt{-F}) by default. \\
+\bottomrule
+\end{tabularx}
+\caption{Configuration options reference}
+\end{table}
+
+\section{Project-Scoped History}
+When invoked without query arguments (\texttt{vgrep}), the tool scans parent directories for marker files (\texttt{.git}, \texttt{go.mod}, \texttt{Cargo.toml}, \texttt{pubspec.yaml}, \texttt{pyproject.toml}, \texttt{package.json}) to determine the project root.
+
+\begin{itemize}[leftmargin=1.5em]
+    \item Queries are stored in \texttt{\textasciitilde/.config/vgrep/history.json} partitioned by project root path.
+    \item Up to 25 queries are tracked per repository, ranked by frequency and relative recency (e.g., \textit{just now}, \textit{10m ago}, \textit{3d ago}).
+    \item If \texttt{fzf} is installed, an interactive fuzzy picker is displayed. Otherwise, a numbered terminal menu is provided.
+    \item Item \texttt{0} allows direct resumption of the previous session (equivalent to \texttt{vgrep -v}).
+\end{itemize}
+
+\section{Diagnostic Health Check}
+The \texttt{--health} flag inspects installed tooling, active configuration, and filesystem paths:
+
+\begin{lstlisting}[language=bash]
+$ vgrep --health
+=== vgrep Health Check ===
+
+  ripgrep (rg): ripgrep 14.1.0 (~/.cargo/bin/rg)
+  fzf: Found (/usr/bin/fzf)
+  rgr (repgrep): Found (~/.cargo/bin/rgr)
+  Config editor (wig): Found (/usr/local/bin/wig)
+
+  Config path:  ~/.config/vgrep/config.toml
+  History path: ~/.config/vgrep/history.json
+  Wig session:  ~/.config/wig/rg_search.json
+\end{lstlisting}
+
+\end{document}
