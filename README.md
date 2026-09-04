@@ -59,7 +59,7 @@ Running searches directly from terminal shells (`bash`, `zsh`) often turns into 
 
 ### Build from Source
 ```bash
-git clone https://github.com/your-username/vgrep.git
+git clone https://github.com/lecheel/vg.git
 cd vgrep
 go build -o vgrep main.go
 sudo mv vgrep /usr/local/bin/
