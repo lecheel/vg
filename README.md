@@ -6,6 +6,22 @@ A blazing-fast, project-aware interactive CLI search tool built on top of [ripgr
 
 ---
 
+## Problem Statement
+
+Running searches directly from terminal shells (`bash`, `zsh`) often turns into a frustrating battle with quote and space parsing:
+
+- **Eaten Quotes (`'` and `"`)**: Shell interpreters strip or expand single and double quotes before passing arguments to commands. Searching for code snippets with quotes (e.g., `{"key": "value"}` or `'foo'`) requires tedious multi-layer escaping (`\"`, `\'`).
+- **Word-Splitting on Spaces**: Searching for phrases or expressions containing spaces (e.g., `const x = "bar"`) often leads to unintentional word-splitting unless wrapped in nested quotes.
+- **Accidental Shell Expansions**: Characters like `$`, `!`, `\`, and `` ` `` trigger shell variable or history expansions unless painstakingly escaped.
+
+### How `vgrep` Solves This
+
+- 💡 **Direct In-TUI Input (`n`)**: Press `n` in the TUI to open an interactive prompt that reads in raw terminal mode. You can freely type spaces, single quotes (`'`), double quotes (`"`), backslashes, and regex characters without worrying about shell scripts or command-line parsers eating them.
+- 🧠 **Frictionless History Recall**: Revisit past searches containing quotes or spaces directly from the project history picker without re-typing or re-escaping them in your shell.
+- 🔁 **Continuous Workflow**: Stay inside your interactive search session rather than jumping back and forth to a shell prompt.
+
+---
+
 ## Features
 
 - ⚡ **Powered by `ripgrep`**: Instant search with automatic `.gitignore` parsing, pruning of build/target directories, and multi-threaded traversal.
@@ -28,7 +44,7 @@ A blazing-fast, project-aware interactive CLI search tool built on top of [ripgr
 
 ### Prerequisites
 - [ripgrep (`rg`)](https://github.com/BurntSushi/ripgrep) (required)
-- [repgrep (`rgr`)](https://github.com/acheronfail/repgrep) (optional, enables `r` find & replace)
+- [repgrep (`rgr`)](https://github.com/acheronfail/repgrep) (optional, enables `r` for advanced regex find & replace)
 - [fzf](https://github.com/junegunn/fzf) (optional, for fuzzy history selection)
 - An editor like `wig`, `nvim`, or `vim`
 
