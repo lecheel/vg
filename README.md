@@ -289,28 +289,10 @@ fixed_strings = false
 - **Repository**: [https://github.com/BurntSushi/ripgrep](https://github.com/BurntSushi/ripgrep)
 - **Role**: `vgrep` relies directly on `ripgrep` as its core search engine, leveraging its blazing speed, multithreaded directory traversal, automatic `.gitignore` parsing, and structured NDJSON output stream.
 
-@software{gallant_ripgrep_2016,
-  author       = {Andrew Gallant},
-  title        = {ripgrep: A line-oriented search tool that recursively searches directories for a regex pattern},
-  year         = {2016},
-  publisher    = {GitHub},
-  journal      = {GitHub repository},
-  howpublished = {\url{https://github.com/BurntSushi/ripgrep}}
-}
-
 ### 2. repgrep (`rgr`)
 - **Author**: [@acheronfail](https://github.com/acheronfail)
 - **Repository**: [https://github.com/acheronfail/repgrep](https://github.com/acheronfail/repgrep)
 - **Role**: Provides the full-screen interactive regex find-and-replace replacer launched directly from within `vgrep` via the `r` key shortcut.
-
-@software{acheronfail_repgrep_2021,
-  author       = {acheronfail},
-  title        = {repgrep: An interactive replacer for ripgrep},
-  year         = {2021},
-  publisher    = {GitHub},
-  journal      = {GitHub repository},
-  howpublished = {\url{https://github.com/acheronfail/repgrep}}
-}
 
 ---
 
