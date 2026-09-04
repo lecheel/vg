@@ -99,7 +99,20 @@ func RuneWidth(r rune) int {
 
 func StrDisplayWidth(s string) int {
 	w := 0
-	for _, r := range s {
+	runes := []rune(s)
+	inEsc := false
+	for i := 0; i < len(runes); i++ {
+		r := runes[i]
+		if r == '\033' {
+			inEsc = true
+			continue
+		}
+		if inEsc {
+			if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || r == '~' {
+				inEsc = false
+			}
+			continue
+		}
 		w += RuneWidth(r)
 	}
 	return w
@@ -117,16 +130,31 @@ func TruncateDisplayWidthEnd(s string, maxWidth int) string {
 		return "…"
 	}
 	curW := 0
-	var runes []rune
-	for _, r := range s {
+	var out []rune
+	runes := []rune(s)
+	inEsc := false
+	for i := 0; i < len(runes); i++ {
+		r := runes[i]
+		if r == '\033' {
+			inEsc = true
+			out = append(out, r)
+			continue
+		}
+		if inEsc {
+			out = append(out, r)
+			if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || r == '~' {
+				inEsc = false
+			}
+			continue
+		}
 		rw := RuneWidth(r)
 		if curW+rw > target {
 			break
 		}
 		curW += rw
-		runes = append(runes, r)
+		out = append(out, r)
 	}
-	return string(runes) + "…"
+	return string(out) + "…" + color.Reset
 }
 
 func TruncateDisplayWidthStart(s string, maxWidth int) string {

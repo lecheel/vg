@@ -18,6 +18,20 @@ import (
 	"vgrep/internal/search"
 )
 
+func formatShortcuts(items [][2]string) string {
+	var parts []string
+	for _, it := range items {
+		key := it[0]
+		desc := it[1]
+		if desc == "" {
+			parts = append(parts, fmt.Sprintf("%s%s%s", color.FgGold, key, color.FgGray))
+		} else {
+			parts = append(parts, fmt.Sprintf("%s%s%s:%s", color.FgGold, key, color.FgGray, desc))
+		}
+	}
+	return fmt.Sprintf("%s[%s%s]%s", color.FgGray, strings.Join(parts, "  "), color.FgGray, color.Reset)
+}
+
 func OpenEditor(item model.WigResultItem) error {
 	editor := os.Getenv("EDITOR")
 	if editor == "" {
@@ -310,23 +324,66 @@ func RenderTUI(
 
 	// 4. COMMAND / HELP BAR
 	if inSearchMode {
-		buf.WriteString(fmt.Sprintf("%sSEARCH>%s %s%s %s %s(Enter: search, Esc: cancel, Backspace: del, Ctrl+U: clear)%s%s",
-			color.FgBoldCyan, color.Reset, newSearchText, color.CursorBlock, color.Reset, color.FgGray, color.Reset, color.ClearLine))
+		hints := fmt.Sprintf("(%sEnter%s: search, %sEsc%s: cancel, %sBackspace%s: del, %sCtrl+U%s: clear)",
+			color.FgGold, color.FgGray, color.FgGold, color.FgGray, color.FgGold, color.FgGray, color.FgGold, color.FgGray)
+		buf.WriteString(fmt.Sprintf("%sSEARCH>%s %s%s %s %s%s%s%s",
+			color.FgBoldCyan, color.Reset, newSearchText, color.CursorBlock, color.Reset, color.FgGray, hints, color.Reset, color.ClearLine))
 	} else if inFilterMode {
-		buf.WriteString(fmt.Sprintf("%sFILTER>%s %s%s %s %s(Enter/Esc: done, Backspace: del, Ctrl+U: clear)%s%s",
-			color.FgBoldYellow, color.Reset, filterText, color.CursorBlock, color.Reset, color.FgGray, color.Reset, color.ClearLine))
+		hints := fmt.Sprintf("(%sEnter/Esc%s: done, %sBackspace%s: del, %sCtrl+U%s: clear)",
+			color.FgGold, color.FgGray, color.FgGold, color.FgGray, color.FgGold, color.FgGray)
+		buf.WriteString(fmt.Sprintf("%sFILTER>%s %s%s %s %s%s%s%s",
+			color.FgBoldYellow, color.Reset, filterText, color.CursorBlock, color.Reset, color.FgGray, hints, color.Reset, color.ClearLine))
 	} else if inReplaceMode {
-		buf.WriteString(fmt.Sprintf("%sREPLACE>%s %s%s %s %s(Enter: apply, Tab: inspect list, Esc: cancel)%s%s",
-			color.FgBoldMagenta, color.Reset, replaceText, color.CursorBlock, color.Reset, color.FgGray, color.Reset, color.ClearLine))
+		hints := fmt.Sprintf("(%sEnter%s: apply, %sTab%s: inspect list, %sEsc%s: cancel)",
+			color.FgGold, color.FgGray, color.FgGold, color.FgGray, color.FgGold, color.FgGray)
+		buf.WriteString(fmt.Sprintf("%sREPLACE>%s %s%s %s %s%s%s%s",
+			color.FgBoldMagenta, color.Reset, replaceText, color.CursorBlock, color.Reset, color.FgGray, hints, color.Reset, color.ClearLine))
 	} else if replaceText != "" {
-		helpText := "[Tab/R:edit replace  Enter:apply  SPC:toggle  a:all  Esc:clear  e/o:open  q:quit]"
-		buf.WriteString(fmt.Sprintf("%s%s%s%s", color.FgGray, TruncateDisplayWidthEnd(helpText, termWidth-2), color.Reset, color.ClearLine))
-	} else {
-		helpText := "[j/k:move  SPC:del line  n:new rg  R/Tab:replace  a:all  J/K:file  g/G:jump  pgup/dn  /:filter  e/o:open  q:quit]"
-		if config.HasExecutable("rgr") {
-			helpText = "[j/k:move  SPC:del line  n:new rg  r:rgr  R/Tab:replace  a:all  J/K:file  g/G:jump  pgup/dn  /:filter  e/o:open  q:quit]"
+		items := [][2]string{
+			{"Tab/R", "edit replace"},
+			{"Enter", "apply"},
+			{"SPC", "toggle"},
+			{"a", "all"},
+			{"Esc", "clear"},
+			{"e/o", "open"},
+			{"q", "quit"},
 		}
-		buf.WriteString(fmt.Sprintf("%s%s%s%s", color.FgGray, TruncateDisplayWidthEnd(helpText, termWidth-2), color.Reset, color.ClearLine))
+		helpStr := formatShortcuts(items)
+		buf.WriteString(fmt.Sprintf("%s%s", TruncateDisplayWidthEnd(helpStr, termWidth-2), color.ClearLine))
+	} else {
+		var items [][2]string
+		if config.HasExecutable("rgr") {
+			items = [][2]string{
+				{"j/k", "move"},
+				{"SPC", "del line"},
+				{"n", "new rg"},
+				{"r", "rgr"},
+				{"R/Tab", "replace"},
+				{"a", "all"},
+				{"J/K", "file"},
+				{"g/G", "jump"},
+				{"pgup/dn", ""},
+				{"/", "filter"},
+				{"e/o", "open"},
+				{"q", "quit"},
+			}
+		} else {
+			items = [][2]string{
+				{"j/k", "move"},
+				{"SPC", "del line"},
+				{"n", "new rg"},
+				{"R/Tab", "replace"},
+				{"a", "all"},
+				{"J/K", "file"},
+				{"g/G", "jump"},
+				{"pgup/dn", ""},
+				{"/", "filter"},
+				{"e/o", "open"},
+				{"q", "quit"},
+			}
+		}
+		helpStr := formatShortcuts(items)
+		buf.WriteString(fmt.Sprintf("%s%s", TruncateDisplayWidthEnd(helpStr, termWidth-2), color.ClearLine))
 	}
 
 	os.Stdout.Write(buf.Bytes())

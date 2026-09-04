@@ -53,6 +53,8 @@ const (
 
 	// Extended 256 colors
 	BgDarkGray = "\033[48;5;236m"
+	FgGold     = "\033[38;5;178m"
+	FgBoldGold = "\033[1;38;5;178m"
 
 	// Compound styles for UI badges and elements
 	BadgeVgrep       = "\033[1;30;46m" // Bold black on cyan
