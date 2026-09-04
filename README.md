@@ -259,14 +259,25 @@ When `vgrep -v` is invoked, `vgrep` skips running `ripgrep` entirely and loads t
 ```toml
 ## Configuration File (`~/.config/vgrep/config.toml`)
 
-# Default editor command
+You can edit your configuration anytime with `vgrep -e` or `vgrep --edit`:
+
+# Preferred editor command (falls back to $EDITOR, wig, nvim, vim)
 editor = "wig"
 
 # Custom path to shared search session JSON
 session_file = "~/.config/wig/rg_search.json"
-# Custom path to shared search session JSON
-session_file = "~/.config/wig/rg_search.json"
 
+# Default literal string search mode (-F)
+fixed_strings = false
+
+### Configuration Options
+
+| Option | Type | Default | Description |
+|---|---|---|---|
+| `editor` | `string` | `"wig"` | Editor binary or path used to open matches |
+| `session_file` | `string` | `"~/.config/wig/rg_search.json"` | Shared quickfix session export path (supports `~`) |
+| `fixed_strings` | `bool` | `false` | Enable literal match mode (`-F`) by default |
+```
 ---
 
 ## Acknowledgements & Citations
