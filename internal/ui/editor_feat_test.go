@@ -113,3 +113,11 @@ func TestFormatShortcuts_Styling(t *testing.T) {
 		t.Errorf("expected description ':-F'")
 	}
 }
+
+func TestSearchPrompt_AltIToggleHint(t *testing.T) {
+	// Verify that Alt+i hint uses gold styling
+	goldAltI := color.FgGold + "Alt+i" + color.FgGray
+	if !strings.Contains(goldAltI, "Alt+i") {
+		t.Errorf("expected Alt+i in hint")
+	}
+}

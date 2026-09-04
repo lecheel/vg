@@ -89,6 +89,9 @@ func RenderTUI(
 	inSearchMode bool,
 	newSearchText string,
 	fixedStrings bool,
+	searchEditor *LineEditor,
+	filterEditor *LineEditor,
+	replaceEditor *LineEditor,
 ) {
 	termHeight, termWidth := GetTerminalSize()
 	if termHeight < 5 {
@@ -343,20 +346,36 @@ func RenderTUI(
 
 	// 4. COMMAND / HELP BAR
 	if inSearchMode {
-		hints := fmt.Sprintf("(%sEnter%s: search, %sEsc%s: cancel, %sBackspace%s: del, %sCtrl+U%s: clear)",
+		promptLabel := fmt.Sprintf("%sSEARCH>%s", color.FgBoldCyan, color.Reset)
+		if ignoreCase {
+			promptLabel = fmt.Sprintf("%sSEARCH %s[-i]%s>%s", color.FgBoldCyan, color.FgGold, color.FgBoldCyan, color.Reset)
+		}
+		renderedInput := newSearchText + color.CursorBlock + " " + color.Reset
+		if searchEditor != nil {
+			renderedInput = searchEditor.Render(color.CursorBlock, color.Reset)
+		}
+		hints := fmt.Sprintf("(%sEnter%s: search, %sAlt+i%s: -i, %sCtrl+A/E%s: move, %sEsc%s: cancel)",
 			color.FgGold, color.FgGray, color.FgGold, color.FgGray, color.FgGold, color.FgGray, color.FgGold, color.FgGray)
-		buf.WriteString(fmt.Sprintf("%sSEARCH>%s %s%s %s %s%s%s%s",
-			color.FgBoldCyan, color.Reset, newSearchText, color.CursorBlock, color.Reset, color.FgGray, hints, color.Reset, color.ClearLine))
+		buf.WriteString(fmt.Sprintf("%s %s %s%s%s%s",
+			promptLabel, renderedInput, color.FgGray, hints, color.Reset, color.ClearLine))
 	} else if inFilterMode {
-		hints := fmt.Sprintf("(%sEnter/Esc%s: done, %sBackspace%s: del, %sCtrl+U%s: clear)",
+		renderedFilter := filterText + color.CursorBlock + " " + color.Reset
+		if filterEditor != nil {
+			renderedFilter = filterEditor.Render(color.CursorBlock, color.Reset)
+		}
+		hints := fmt.Sprintf("(%sEnter/Esc%s: done, %sCtrl+A/E%s: move, %sCtrl+U%s: clear)",
 			color.FgGold, color.FgGray, color.FgGold, color.FgGray, color.FgGold, color.FgGray)
-		buf.WriteString(fmt.Sprintf("%sFILTER>%s %s%s %s %s%s%s%s",
-			color.FgBoldYellow, color.Reset, filterText, color.CursorBlock, color.Reset, color.FgGray, hints, color.Reset, color.ClearLine))
+		buf.WriteString(fmt.Sprintf("%sFILTER>%s %s %s%s%s%s",
+			color.FgBoldYellow, color.Reset, renderedFilter, color.FgGray, hints, color.Reset, color.ClearLine))
 	} else if inReplaceMode {
-		hints := fmt.Sprintf("(%sEnter%s: apply, %sTab%s: inspect list, %sEsc%s: cancel)",
-			color.FgGold, color.FgGray, color.FgGold, color.FgGray, color.FgGold, color.FgGray)
-		buf.WriteString(fmt.Sprintf("%sREPLACE>%s %s%s %s %s%s%s%s",
-			color.FgBoldMagenta, color.Reset, replaceText, color.CursorBlock, color.Reset, color.FgGray, hints, color.Reset, color.ClearLine))
+		renderedReplace := replaceText + color.CursorBlock + " " + color.Reset
+		if replaceEditor != nil {
+			renderedReplace = replaceEditor.Render(color.CursorBlock, color.Reset)
+		}
+		hints := fmt.Sprintf("(%sEnter%s: apply, %sTab%s: inspect, %sCtrl+A/E%s: move, %sEsc%s: cancel)",
+			color.FgGold, color.FgGray, color.FgGold, color.FgGray, color.FgGold, color.FgGray, color.FgGold, color.FgGray)
+		buf.WriteString(fmt.Sprintf("%sREPLACE>%s %s %s%s%s%s",
+			color.FgBoldMagenta, color.Reset, renderedReplace, color.FgGray, hints, color.Reset, color.ClearLine))
 	} else if replaceText != "" {
 		items := [][2]string{
 			{"Tab/R", "edit replace"},
@@ -475,7 +494,10 @@ func RunTUI(results []model.WigResultItem, searchPattern string, fileTypes []str
 	inReplaceMode := false
 	inSearchMode := false
 	replaceText := ""
-	newSearchText := ""
+
+	searchEditor := NewLineEditor()
+	filterEditor := NewLineEditor()
+	replaceEditor := NewLineEditor()
 
 	statusNotice := ""
 	statusNoticeTime := time.Time{}
@@ -517,7 +539,8 @@ func RunTUI(results []model.WigResultItem, searchPattern string, fileTypes []str
 			activeNotice = statusNotice
 		}
 
-		RenderTUI(entries, groups, cursor, viewportStart, filter, searchPattern, fileTypes, ignoreCase, inFilterMode, inReplaceMode, replaceText, numBuffer, excluded, activeNotice, inSearchMode, newSearchText, fixedStrings)
+		newSearchText := searchEditor.Text()
+		RenderTUI(entries, groups, cursor, viewportStart, filter, searchPattern, fileTypes, ignoreCase, inFilterMode, inReplaceMode, replaceText, numBuffer, excluded, activeNotice, inSearchMode, newSearchText, fixedStrings, searchEditor, filterEditor, replaceEditor)
 
 		b, err := reader.ReadByte()
 		if err != nil {
@@ -526,16 +549,19 @@ func RunTUI(results []model.WigResultItem, searchPattern string, fileTypes []str
 
 		// Search Typing Mode
 		if inSearchMode {
-			if b == 27 || b == 3 {
+			action := searchEditor.HandleInput(b, reader)
+			switch action {
+			case RLCancel:
 				inSearchMode = false
-				newSearchText = ""
+				searchEditor.Clear()
 				continue
-			}
-
-			if b == '\r' || b == '\n' {
+			case RLToggleCase:
+				ignoreCase = !ignoreCase
+				continue
+			case RLSubmit:
 				inSearchMode = false
-				query := strings.TrimSpace(newSearchText)
-				newSearchText = ""
+				query := strings.TrimSpace(searchEditor.Text())
+				searchEditor.Clear()
 				if query == "" {
 					continue
 				}
@@ -550,6 +576,7 @@ func RunTUI(results []model.WigResultItem, searchPattern string, fileTypes []str
 				results = newResults
 				searchPattern = query
 				filter = ""
+				filterEditor.Clear()
 				excluded = make(map[int]bool)
 				cursor = 0
 				viewportStart = 0
@@ -564,53 +591,27 @@ func RunTUI(results []model.WigResultItem, searchPattern string, fileTypes []str
 				}
 				statusNoticeTime = time.Now()
 				continue
-			}
-
-			if b == 127 || b == 8 {
-				if len(newSearchText) > 0 {
-					r := []rune(newSearchText)
-					newSearchText = string(r[:len(r)-1])
-				}
+			default:
 				continue
 			}
-
-			if b == 21 {
-				newSearchText = ""
-				continue
-			}
-
-			if b == 23 {
-				trimmed := strings.TrimRight(newSearchText, " ")
-				if idx := strings.LastIndex(trimmed, " "); idx != -1 {
-					newSearchText = trimmed[:idx+1]
-				} else {
-					newSearchText = ""
-				}
-				continue
-			}
-
-			if b >= 32 && b <= 126 {
-				newSearchText += string(b)
-				continue
-			}
-			continue
 		}
 
 		// Replace Typing Mode
 		if inReplaceMode {
-			if b == 27 {
+			action := replaceEditor.HandleInput(b, reader)
+			switch action {
+			case RLCancel:
 				inReplaceMode = false
+				replaceEditor.Clear()
 				replaceText = ""
 				continue
-			}
-
-			if b == '\t' {
+			case RLTab:
 				inReplaceMode = false
+				replaceText = replaceEditor.Text()
 				continue
-			}
-
-			if b == '\r' || b == '\n' {
+			case RLSubmit:
 				inReplaceMode = false
+				replaceText = replaceEditor.Text()
 				replacedCount, filesModified, err := replace.ApplyReplacement(results, excluded, searchPattern, replaceText, ignoreCase)
 				if err != nil {
 					statusNotice = fmt.Sprintf("%s❌ Replace error: %v%s", color.FgBoldRed, err, color.Reset)
@@ -621,62 +622,35 @@ func RunTUI(results []model.WigResultItem, searchPattern string, fileTypes []str
 				}
 				statusNoticeTime = time.Now()
 				replaceText = ""
+				replaceEditor.Clear()
 				entries, groups = buildEntries(filter)
 				continue
-			}
-
-			if b == 127 || b == 8 {
-				if len(replaceText) > 0 {
-					r := []rune(replaceText)
-					replaceText = string(r[:len(r)-1])
-				}
+			default:
+				replaceText = replaceEditor.Text()
 				continue
 			}
-
-			if b == 21 {
-				replaceText = ""
-				continue
-			}
-
-			if b >= 32 && b <= 126 {
-				replaceText += string(b)
-				continue
-			}
-			continue
 		}
 
 		// Filter Editing Mode
 		if inFilterMode {
-			if b == 27 {
-				if reader.Buffered() >= 2 {
-					b1, _ := reader.ReadByte()
-					b2, _ := reader.ReadByte()
-					if b1 == '[' {
-						switch b2 {
-						case 'A':
-							if cursor > 0 {
-								cursor--
-							}
-						case 'B':
-							if cursor < len(entries)-1 {
-								cursor++
-							}
-						}
-					}
-					continue
+			action := filterEditor.HandleInput(b, reader)
+			switch action {
+			case RLCancel, RLSubmit:
+				inFilterMode = false
+				continue
+			case RLArrowUp:
+				if cursor > 0 {
+					cursor--
 				}
-				inFilterMode = false
 				continue
-			}
-
-			if b == '\r' || b == '\n' {
-				inFilterMode = false
+			case RLArrowDown:
+				if cursor < len(entries)-1 {
+					cursor++
+				}
 				continue
-			}
-
-			if b == 127 || b == 8 {
-				if len(filter) > 0 {
-					filter = filter[:len(filter)-1]
+			default:
+				if filter != filterEditor.Text() {
+					filter = filterEditor.Text()
 					entries, groups = buildEntries(filter)
 					if cursor >= len(entries) && len(entries) > 0 {
 						cursor = len(entries) - 1
@@ -687,43 +661,6 @@ func RunTUI(results []model.WigResultItem, searchPattern string, fileTypes []str
 				}
 				continue
 			}
-
-			if b == 21 {
-				filter = ""
-				entries, groups = buildEntries(filter)
-				cursor = 0
-				continue
-			}
-
-			if b == 23 {
-				trimmed := strings.TrimRight(filter, " ")
-				if idx := strings.LastIndex(trimmed, " "); idx != -1 {
-					filter = trimmed[:idx+1]
-				} else {
-					filter = ""
-				}
-				entries, groups = buildEntries(filter)
-				if cursor >= len(entries) && len(entries) > 0 {
-					cursor = len(entries) - 1
-				}
-				if cursor < 0 {
-					cursor = 0
-				}
-				continue
-			}
-
-			if b >= 32 && b <= 126 {
-				filter += string(b)
-				entries, groups = buildEntries(filter)
-				if cursor >= len(entries) && len(entries) > 0 {
-					cursor = len(entries) - 1
-				}
-				if cursor < 0 {
-					cursor = 0
-				}
-				continue
-			}
-			continue
 		}
 
 		// Normal Mode
@@ -752,14 +689,16 @@ func RunTUI(results []model.WigResultItem, searchPattern string, fileTypes []str
 		case 'c':
 			if filter != "" {
 				filter = ""
+				filterEditor.Clear()
 				entries, groups = buildEntries(filter)
 				cursor = 0
 			}
 
 		case 'n':
 			inSearchMode = true
-			newSearchText = ""
+			searchEditor.Clear()
 			replaceText = ""
+			replaceEditor.Clear()
 			continue
 
 		case 'F':
@@ -823,6 +762,7 @@ func RunTUI(results []model.WigResultItem, searchPattern string, fileTypes []str
 
 		case 'R', '\t':
 			inReplaceMode = true
+			replaceEditor.SetText(replaceText)
 			continue
 
 		case 'a':
@@ -840,6 +780,7 @@ func RunTUI(results []model.WigResultItem, searchPattern string, fileTypes []str
 
 		case '/':
 			inFilterMode = true
+			filterEditor.SetText(filter)
 
 		case 'j':
 			cursor += count
@@ -983,15 +924,36 @@ func RunTUI(results []model.WigResultItem, searchPattern string, fileTypes []str
 
 		case 27:
 			if reader.Buffered() == 0 {
-				if replaceText != "" {
-					replaceText = ""
-					continue
+				time.Sleep(20 * time.Millisecond)
+				if reader.Buffered() == 0 {
+					if replaceText != "" {
+						replaceText = ""
+						continue
+					}
 				}
 			}
-			if reader.Buffered() >= 2 {
+			if reader.Buffered() > 0 {
 				b1, _ := reader.ReadByte()
-				b2, _ := reader.ReadByte()
-				if b1 == '[' {
+				if b1 == 'i' || b1 == 'I' {
+					ignoreCase = !ignoreCase
+					newResults, err := search.RunRipgrep(searchPattern, fileTypes, ignoreCase, fixedStrings)
+					if err == nil {
+						results = newResults
+						entries, groups = buildEntries(filter)
+						if cursor >= len(entries) && len(entries) > 0 {
+							cursor = len(entries) - 1
+						}
+						if ignoreCase {
+							statusNotice = fmt.Sprintf("%s✓ Case-insensitive enabled (-i)%s", color.FgBoldGreen, color.Reset)
+						} else {
+							statusNotice = fmt.Sprintf("%s✓ Case-sensitive enabled%s", color.FgBoldYellow, color.Reset)
+						}
+						statusNoticeTime = time.Now()
+					}
+					continue
+				}
+				if b1 == '[' && reader.Buffered() > 0 {
+					b2, _ := reader.ReadByte()
 					switch b2 {
 					case 'A':
 						cursor -= count

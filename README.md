@@ -4,6 +4,8 @@ A blazing-fast, project-aware interactive CLI search tool built on top of [ripgr
 
 `vgrep` bridges the gap between searching code and editing it by providing **Vim-motion navigation**, **scoped project history recall**, **on-the-fly ripgrep queries (`n`)**, **in-app & external find-and-replace**, and direct session integration with editors like **`wig`**, **`nvim`**, and **`vim`**.
 
+`vgrep` bridges the gap between searching code and editing it by providing **Vim-motion navigation**, **scoped project history recall**, **on-the-fly ripgrep queries (`n`)**, **in-app & external find-and-replace**, and direct session integration with editors like **`wig`**, **`nvim`**, and **`vim`**.
+
 ---
 
 ## Problem Statement
@@ -17,6 +19,8 @@ Running searches directly from terminal shells (`bash`, `zsh`) often turns into 
 ### How `vgrep` Solves This
 
 - 💡 **Direct In-TUI Input (`n`)**: Press `n` in the TUI to open an interactive prompt that reads in raw terminal mode. You can freely type spaces, single quotes (`'`), double quotes (`"`), backslashes, and regex characters without worrying about shell scripts or command-line parsers eating them.
+- 🔤 **Instant Case Sensitivity Toggle (`Alt+i`)**: Press `Alt+i` while typing in the `n` prompt or in normal mode to switch between case-sensitive and case-insensitive (`-i`) search instantly.
+- 🔲 **Literal Mode Toggle (`F`)**: Toggle fixed strings mode (`-F`) on the fly to search symbols like `[`, `]`, `(`, `)`, and `.` literally without regex escaping.
 - 🧠 **Frictionless History Recall**: Revisit past searches containing quotes or spaces directly from the project history picker without re-typing or re-escaping them in your shell.
 - 🔁 **Continuous Workflow**: Stay inside your interactive search session rather than jumping back and forth to a shell prompt.
 
@@ -26,6 +30,13 @@ Running searches directly from terminal shells (`bash`, `zsh`) often turns into 
 
 - ⚡ **Powered by `ripgrep`**: Instant search with automatic `.gitignore` parsing, pruning of build/target directories, and multi-threaded traversal.
 - 🎯 **Vim-Motion TUI**: Navigate search results using relative line numbers, counts (e.g., `3j`, `5k`), file-aware jumps (`J`/`K`), live filtering (`/`), and return right back to your search list after `:q` in your editor.
+- 🔍 **New Search On-the-Fly (`n`)**: Press `n` anytime in the TUI to open an interactive prompt and run a new ripgrep query without exiting.
+- 🔲 **Literal Mode (`F` / `-F`)**: Toggle between regex and literal string matching on the fly.
+- ✏️ **Built-in Find & Replace (`R` / `Tab`)**: Interactive in-place find and replace with real-time substitution preview, match exclusion toggles (`SPC`, `a`), and batch file updates.
+- 🔁 **External Replacer (`r` with `rgr`)**: Press `r` in the TUI to launch [repgrep / `rgr`](https://github.com/acheronfail/repgrep) (automatically hidden if `rgr` is not installed).
+- 📍 **Exact Column Positioning**: Jumps directly to the matched word and character column in editors like `wig`, `nvim`, `vim`, `helix`, `vscode`, `nano`, and `emacs`.
+- 🩺 **Environment Health Check (`--health`)**: Instantly inspect installed tooling (`rg`, `fzf`, `rgr`, `$EDITOR`, config editor) and configuration paths with clean `~` path abbreviation.
+- ⚙️ **Configurable (`~/.config/vgrep/config.toml`)**: Custom default editor, session cache path, and default literal search options.
 - 🔍 **New Search On-the-Fly (`n`)**: Press `n` anytime in the TUI to open an interactive prompt and run a new ripgrep query without exiting.
 - ✏️ **Built-in Find & Replace (`R` / `Tab`)**: Interactive in-place find and replace with real-time diff preview, match exclusions, and batch file updates.
 - 🔁 **External Replacer (`r` with `rgr`)**: Press `r` in the TUI to launch [repgrep / `rgr`](https://github.com/acheronfail/repgrep) (automatically hidden if `rgr` is not installed).
