@@ -5,7 +5,7 @@ GO ?= go
 GOFLAGS ?=
 LDFLAGS ?= -s -w
 
-.PHONY: all build run test test-race test-cover fmt vet lint clean install uninstall health manual help
+.PHONY: all build build-all run test test-race test-cover fmt vet lint clean install uninstall health manual help
 
 # Default target
 all: build
@@ -14,6 +14,24 @@ all: build
 build:
 	@echo "==> Building $(BINARY_NAME)..."
 	$(GO) build $(GOFLAGS) -ldflags="$(LDFLAGS)" -o $(BINARY_NAME) main.go
+
+## build-all: Build binaries for all supported platforms
+build-all: build-linux-amd64 build-linux-arm64 build-darwin-amd64 build-darwin-arm64 build-windows-amd64
+
+build-linux-amd64:
+	GOOS=linux GOARCH=amd64 $(GO) build $(GOFLAGS) -ldflags="$(LDFLAGS)" -o $(BINARY_NAME)-linux-amd64 main.go
+
+build-linux-arm64:
+	GOOS=linux GOARCH=arm64 $(GO) build $(GOFLAGS) -ldflags="$(LDFLAGS)" -o $(BINARY_NAME)-linux-arm64 main.go
+
+build-darwin-amd64:
+	GOOS=darwin GOARCH=amd64 $(GO) build $(GOFLAGS) -ldflags="$(LDFLAGS)" -o $(BINARY_NAME)-darwin-amd64 main.go
+
+build-darwin-arm64:
+	GOOS=darwin GOARCH=arm64 $(GO) build $(GOFLAGS) -ldflags="$(LDFLAGS)" -o $(BINARY_NAME)-darwin-arm64 main.go
+
+build-windows-amd64:
+	GOOS=windows GOARCH=amd64 $(GO) build $(GOFLAGS) -ldflags="$(LDFLAGS)" -o $(BINARY_NAME)-windows-amd64.exe main.go
 
 ## run: Build and run with arguments (usage: make run ARGS="pattern")
 run: build
