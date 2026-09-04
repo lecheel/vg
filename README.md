@@ -12,18 +12,33 @@ A blazing-fast, project-aware interactive CLI search tool built on top of [ripgr
 
 ## Problem Statement
 
-Running searches directly from terminal shells (`bash`, `zsh`) often turns into a frustrating battle with quote and space parsing:
+Developers constantly search code from the terminal, but traditional CLI search workflows suffer from two major friction points:
 
-- **Eaten Quotes (`'` and `"`)**: Shell interpreters strip or expand single and double quotes before passing arguments to commands. Searching for code snippets with quotes (e.g., `{"key": "value"}` or `'foo'`) requires tedious multi-layer escaping (`\"`, `\'`).
-- **Word-Splitting on Spaces**: Searching for phrases or expressions containing spaces (e.g., `const x = "bar"`) often leads to unintentional word-splitting unless wrapped in nested quotes.
+### 1. Quoting & Shell Expansion Friction
+Running searches directly from shells (`bash`, `zsh`) often turns into a frustrating battle with quote and space parsing:
+- **Eaten Quotes (`'` and `"`)**: Shell interpreters strip or expand single and double quotes before passing arguments. Searching for code snippets with quotes (e.g., `{"key": "value"}` or `'foo'`) requires tedious escaping (`\"`, `\'`).
+- **Word-Splitting on Spaces**: Phrases containing spaces (e.g., `const x = "bar"`) trigger unintentional word-splitting unless wrapped in nested quotes.
 - **Accidental Shell Expansions**: Characters like `$`, `!`, `\`, and `` ` `` trigger shell variable or history expansions unless painstakingly escaped.
+
+### 2. Search Reuse Friction & Disconnected Editor Handoff
+Traditional terminal searches (`rg pattern`) output static text lines into your scrollback buffer, breaking workflow momentum:
+- **Tedious Copy-Paste Launching**: To inspect a match, you must manually copy or retype the file path and line number into your shell (`$EDITOR path/to/file.go +42`).
+- **Context Lost After Editing**: When you exit your editor, you are back at a bare shell prompt. You cannot easily jump to the next match or file without scrolling through terminal history.
+- **Wasteful Re-Scanning**: Re-inspecting the same search results minutes later requires re-running `ripgrep` across the entire codebase from scratch, wasting CPU and disk I/O.
+- **Isolated CLI & Editor States**: Standalone CLI searches don't synchronize with editor quickfix lists, leaving terminal and editor states disconnected.
+
+---
 
 ### How `vgrep` Solves This
 
+- 🔄 **Instant Search Result Reuse (`-v` / `--view`)**: Every search automatically caches structured results to a shared session file (`~/.config/wig/rg_search.json`). Run `vgrep -v` anytime to immediately reopen your last search session with zero re-scanning overhead.
+- 🚀 **1-Keystroke Editor Handoff & Auto-Return**: Press `<Enter>`, `o`, or `e` on any match to jump straight into your `$EDITOR` positioned at the **exact line and column**. When you exit (`:q`), you return immediately back to your interactive search list with your cursor position intact.
+- ⚡ **Auto-Jump on Single Match**: If a query yields exactly one match across the codebase, `vgrep` bypasses the TUI entirely and opens your editor directly at that location.
 - 💡 **Direct In-TUI Input (`n`)**: Press `n` in the TUI to open an interactive prompt that reads in raw terminal mode. You can freely type spaces, single quotes (`'`), double quotes (`"`), backslashes, and regex characters without worrying about shell scripts or command-line parsers eating them.
 - 🔤 **Instant Case Sensitivity Toggle (`Alt+i`)**: Press `Alt+i` while typing in the `n` prompt or in normal mode to switch between case-sensitive and case-insensitive (`-i`) search instantly.
 - 🔲 **Literal Mode Toggle (`F`)**: Toggle fixed strings mode (`-F`) on the fly to search symbols like `[`, `]`, `(`, `)`, and `.` literally without regex escaping.
-- 🧠 **Frictionless History Recall**: Revisit past searches containing quotes or spaces directly from the project history picker without re-typing or re-escaping them in your shell.
+- 🧠 **Frictionless History Recall**: Revisit past searches containing quotes or spaces directly from the project history picker without re-typing or re-escaping them in your shell, with option `[0]` to resume your previous session.
+- 🔄 **Editor Quickfix Synchronization**: Matches are exported in clean JSON format for seamless loading into editors like `wig` for in-editor quickfix navigation (`:cnext` / `:cprev`).
 - 🔁 **Continuous Workflow**: Stay inside your interactive search session rather than jumping back and forth to a shell prompt.
 
 ---
@@ -242,15 +257,13 @@ When `vgrep -v` is invoked, `vgrep` skips running `ripgrep` entirely and loads t
 ## Configuration File (`~/.config/vgrep/config.toml`)
 
 ```toml
-# Default editor command
-editor = "wig"
-
-# Custom path to shared search session JSON
 ## Configuration File (`~/.config/vgrep/config.toml`)
 
 # Default editor command
 editor = "wig"
 
+# Custom path to shared search session JSON
+session_file = "~/.config/wig/rg_search.json"
 # Custom path to shared search session JSON
 session_file = "~/.config/wig/rg_search.json"
 
