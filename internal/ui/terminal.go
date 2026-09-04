@@ -4,13 +4,22 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"os/signal"
 	"strconv"
 	"strings"
-
+	"sync"
+	"syscall"
 	"vgrep/internal/color"
 )
 
-func GetTerminalSize() (int, int) {
+var (
+	sizeMu     sync.Mutex
+	cachedH    int
+	cachedW    int
+	sizeInited bool
+)
+
+func queryTerminalSize() (int, int) {
 	cmd := exec.Command("stty", "size")
 	cmd.Stdin = os.Stdin
 	out, err := cmd.Output()
@@ -39,6 +48,30 @@ func GetTerminalSize() (int, int) {
 	return h, w
 }
 
+// GetTerminalSize returns a cached size, refreshed only on SIGWINCH.
+// Previously this forked `stty size` on every call (once per keystroke in
+// the TUI loop), racing the raw-mode stdin reader for input bytes and
+// occasionally swallowing characters typed right after it.
+func GetTerminalSize() (int, int) {
+	sizeMu.Lock()
+	if !sizeInited {
+		cachedH, cachedW = queryTerminalSize()
+		sizeInited = true
+		ch := make(chan os.Signal, 1)
+		signal.Notify(ch, syscall.SIGWINCH)
+		go func() {
+			for range ch {
+				h, w := queryTerminalSize()
+				sizeMu.Lock()
+				cachedH, cachedW = h, w
+				sizeMu.Unlock()
+			}
+		}()
+	}
+	h, w := cachedH, cachedW
+	sizeMu.Unlock()
+	return h, w
+}
 func GetTerminalHeight() int {
 	h, _ := GetTerminalSize()
 	return h

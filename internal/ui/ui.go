@@ -382,7 +382,7 @@ func RenderTUI(
 			promptLabel, renderedReplace, color.FgGray, hints, color.Reset, color.ClearLine))
 	} else if replaceText != "" {
 		items := [][2]string{
-			{"Tab/R", "edit replace"},
+			{"Tab", "edit replace"},
 			{"Enter", "apply"},
 			{"SPC", "toggle"},
 			{"a", "all"},
@@ -399,9 +399,9 @@ func RenderTUI(
 				{"j/k", "move"},
 				{"SPC", "del line"},
 				{"n", "new rg"},
-				{"F", "-F"},
+				{"F", "-F Literal/Regex"},
 				{"r", "rgr"},
-				{"R/Tab", "replace"},
+				{"Tab", "replace"},
 				{"a", "all"},
 				{"J/K", "file"},
 				{"g/G", "jump"},
@@ -415,7 +415,7 @@ func RenderTUI(
 				{"SPC", "del line"},
 				{"n", "new rg"},
 				{"F", "-F"},
-				{"R/Tab", "replace"},
+				{"Tab", "replace"},
 				{"a", "all"},
 				{"J/K", "file"},
 				{"g/G", "jump"},
