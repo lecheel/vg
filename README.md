@@ -2,7 +2,7 @@
 
 A blazing-fast, project-aware interactive CLI search tool built on top of [ripgrep (`rg`)](https://github.com/BurntSushi/ripgrep).
 
-`vgrep` bridges the gap between searching code and editing it by providing **Vim-motion navigation**, **scoped project history recall**, **live find & replace via `rgr`**, and direct session integration with editors like **`wig`**, **`nvim`**, and **`vim`**.
+`vgrep` bridges the gap between searching code and editing it by providing **Vim-motion navigation**, **scoped project history recall**, **on-the-fly ripgrep queries (`n`)**, **in-app & external find-and-replace**, and direct session integration with editors like **`wig`**, **`nvim`**, and **`vim`**.
 
 ---
 
@@ -10,7 +10,9 @@ A blazing-fast, project-aware interactive CLI search tool built on top of [ripgr
 
 - ⚡ **Powered by `ripgrep`**: Instant search with automatic `.gitignore` parsing, pruning of build/target directories, and multi-threaded traversal.
 - 🎯 **Vim-Motion TUI**: Navigate search results using relative line numbers, counts (e.g., `3j`, `5k`), file-aware jumps (`J`/`K`), live filtering (`/`), and return right back to your search list after `:q` in your editor.
-- 🔁 **Find & Replace (`r` with `rgr`)**: Press `r` in the TUI to launch [repgrep / `rgr`](https://github.com/acheronfail/repgrep) for interactive search and replacement.
+- 🔍 **New Search On-the-Fly (`n`)**: Press `n` anytime in the TUI to open an interactive prompt and run a new ripgrep query without exiting.
+- ✏️ **Built-in Find & Replace (`R` / `Tab`)**: Interactive in-place find and replace with real-time diff preview, match exclusions, and batch file updates.
+- 🔁 **External Replacer (`r` with `rgr`)**: Press `r` in the TUI to launch [repgrep / `rgr`](https://github.com/acheronfail/repgrep) (automatically hidden if `rgr` is not installed).
 - 🩺 **Environment Health Check (`--health`)**: Instantly inspect installed tooling (`rg`, `fzf`, `rgr`, `$EDITOR`) and configuration paths with clean `~` path abbreviation.
 - 🧠 **Project-Scoped History**: Running `vgrep` without arguments remembers and recalls past search patterns specific to the current Git repository or workspace.
 - 📂 **Auto-Detection & Quick Shorthands**:
