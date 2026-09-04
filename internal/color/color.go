@@ -59,6 +59,7 @@ const (
 	BadgeNormal      = "\033[1;30;42m" // Bold black on green
 	BadgeFilter      = "\033[1;30;43m" // Bold black on yellow
 	BadgeReplace     = "\033[1;30;44m" // Bold black on blue
+	BadgeSearch      = "\033[1;30;46m" // Bold black on cyan
 	CursorBlock      = "\033[41;1;37m" // Bold white on red block
 	StatusBarBg      = "\033[48;5;236;37m"
 	StatusResetBg    = "\033[0;48;5;236;37m"

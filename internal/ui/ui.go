@@ -12,6 +12,7 @@ import (
 
 	"vgrep/internal/color"
 	"vgrep/internal/config"
+	"vgrep/internal/history"
 	"vgrep/internal/model"
 	"vgrep/internal/replace"
 	"vgrep/internal/search"
@@ -57,6 +58,8 @@ func RenderTUI(
 	numBuffer string,
 	excluded map[int]bool,
 	statusNotice string,
+	inSearchMode bool,
+	newSearchText string,
 ) {
 	termHeight, termWidth := GetTerminalSize()
 	if termHeight < 5 {
@@ -228,7 +231,10 @@ func RenderTUI(
 	// 3. STATUS BAR
 	modeBadge := fmt.Sprintf("%s NORMAL %s", color.BadgeNormal, color.StatusResetBg)
 	modeWidth := 8
-	if inFilterMode {
+	if inSearchMode {
+		modeBadge = fmt.Sprintf("%s SEARCH %s", color.BadgeSearch, color.StatusResetBg)
+		modeWidth = 8
+	} else if inFilterMode {
 		modeBadge = fmt.Sprintf("%s FILTER %s", color.BadgeFilter, color.StatusResetBg)
 		modeWidth = 8
 	} else if inReplaceMode {
@@ -303,7 +309,10 @@ func RenderTUI(
 		color.StatusBarBg, statusLeft, strings.Repeat(" ", statusSpaces), statusRight, color.ClearLine, color.Reset))
 
 	// 4. COMMAND / HELP BAR
-	if inFilterMode {
+	if inSearchMode {
+		buf.WriteString(fmt.Sprintf("%sSEARCH>%s %s%s %s %s(Enter: search, Esc: cancel, Backspace: del, Ctrl+U: clear)%s%s",
+			color.FgBoldCyan, color.Reset, newSearchText, color.CursorBlock, color.Reset, color.FgGray, color.Reset, color.ClearLine))
+	} else if inFilterMode {
 		buf.WriteString(fmt.Sprintf("%sFILTER>%s %s%s %s %s(Enter/Esc: done, Backspace: del, Ctrl+U: clear)%s%s",
 			color.FgBoldYellow, color.Reset, filterText, color.CursorBlock, color.Reset, color.FgGray, color.Reset, color.ClearLine))
 	} else if inReplaceMode {
@@ -313,7 +322,7 @@ func RenderTUI(
 		helpText := "[Tab/R:edit replace  Enter:apply  SPC:toggle  a:all  Esc:clear  e/o:open  q:quit]"
 		buf.WriteString(fmt.Sprintf("%s%s%s%s", color.FgGray, TruncateDisplayWidthEnd(helpText, termWidth-2), color.Reset, color.ClearLine))
 	} else {
-		helpText := "[j/k:move  SPC:del line  R/Tab:replace  a:all  J/K:file  g/G:jump  pgup/dn  /:filter  e/o:open  q:quit]"
+		helpText := "[j/k:move  SPC:del line  n:new rg  R/Tab:replace  a:all  J/K:file  g/G:jump  pgup/dn  /:filter  e/o:open  q:quit]"
 		buf.WriteString(fmt.Sprintf("%s%s%s%s", color.FgGray, TruncateDisplayWidthEnd(helpText, termWidth-2), color.Reset, color.ClearLine))
 	}
 
@@ -378,7 +387,9 @@ func RunTUI(results []model.WigResultItem, searchPattern string, fileTypes []str
 
 	inFilterMode := false
 	inReplaceMode := false
+	inSearchMode := false
 	replaceText := ""
+	newSearchText := ""
 
 	statusNotice := ""
 	statusNoticeTime := time.Time{}
@@ -420,11 +431,83 @@ func RunTUI(results []model.WigResultItem, searchPattern string, fileTypes []str
 			activeNotice = statusNotice
 		}
 
-		RenderTUI(entries, groups, cursor, viewportStart, filter, searchPattern, fileTypes, ignoreCase, inFilterMode, inReplaceMode, replaceText, numBuffer, excluded, activeNotice)
+		RenderTUI(entries, groups, cursor, viewportStart, filter, searchPattern, fileTypes, ignoreCase, inFilterMode, inReplaceMode, replaceText, numBuffer, excluded, activeNotice, inSearchMode, newSearchText)
 
 		b, err := reader.ReadByte()
 		if err != nil {
 			break
+		}
+
+		// Search Typing Mode
+		if inSearchMode {
+			if b == 27 || b == 3 {
+				inSearchMode = false
+				newSearchText = ""
+				continue
+			}
+
+			if b == '\r' || b == '\n' {
+				inSearchMode = false
+				query := strings.TrimSpace(newSearchText)
+				newSearchText = ""
+				if query == "" {
+					continue
+				}
+
+				newResults, err := search.RunRipgrep(query, fileTypes, ignoreCase)
+				if err != nil {
+					statusNotice = fmt.Sprintf("%s❌ Search error: %v%s", color.FgBoldRed, err, color.Reset)
+					statusNoticeTime = time.Now()
+					continue
+				}
+
+				results = newResults
+				searchPattern = query
+				filter = ""
+				excluded = make(map[int]bool)
+				cursor = 0
+				viewportStart = 0
+				entries, groups = buildEntries(filter)
+
+				if len(results) > 0 {
+					_ = search.WriteWigSession(results)
+					history.AddSearchPattern(search.FindProjectRoot(), query)
+					statusNotice = fmt.Sprintf("%s✓ Found %d matches for %q%s", color.FgBoldGreen, len(results), query, color.Reset)
+				} else {
+					statusNotice = fmt.Sprintf("%sNo matches found for %q%s", color.FgBoldYellow, query, color.Reset)
+				}
+				statusNoticeTime = time.Now()
+				continue
+			}
+
+			if b == 127 || b == 8 {
+				if len(newSearchText) > 0 {
+					r := []rune(newSearchText)
+					newSearchText = string(r[:len(r)-1])
+				}
+				continue
+			}
+
+			if b == 21 {
+				newSearchText = ""
+				continue
+			}
+
+			if b == 23 {
+				trimmed := strings.TrimRight(newSearchText, " ")
+				if idx := strings.LastIndex(trimmed, " "); idx != -1 {
+					newSearchText = trimmed[:idx+1]
+				} else {
+					newSearchText = ""
+				}
+				continue
+			}
+
+			if b >= 32 && b <= 126 {
+				newSearchText += string(b)
+				continue
+			}
+			continue
 		}
 
 		// Replace Typing Mode
@@ -586,6 +669,12 @@ func RunTUI(results []model.WigResultItem, searchPattern string, fileTypes []str
 				entries, groups = buildEntries(filter)
 				cursor = 0
 			}
+
+		case 'n':
+			inSearchMode = true
+			newSearchText = ""
+			replaceText = ""
+			continue
 
 		case ' ':
 			if len(entries) == 0 || cursor >= len(entries) {
