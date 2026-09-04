@@ -289,9 +289,5 @@ session_file = "~/.config/wig/rg_search.json"
 ## License
 
 MIT License. Feel free to use and customize for your workflows!
----
 
-## License
-
-MIT License. Feel free to use and customize for your workflows!
 
