@@ -4,6 +4,10 @@ A blazing-fast, project-aware interactive CLI search tool built on top of [ripgr
 
 `vgrep` bridges the gap between searching code and editing it by providing **Vim-motion navigation**, **scoped project history recall**, **on-the-fly ripgrep queries (`n`)**, **in-app & external find-and-replace**, and direct session integration with editors like **`wig`**, **`nvim`**, and **`vim`**.
 
+<p align="center">
+  <img src="s102901.png" alt="vgrep preview" />
+</p>
+
 ---
 
 ## Problem Statement
