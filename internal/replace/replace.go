@@ -1,44 +1,22 @@
 package replace
 
 import (
-	"bufio"
 	"bytes"
-	"fmt"
 	"os"
 	"os/exec"
 	"strings"
 
-	"vgrep/internal/color"
 	"vgrep/internal/config"
 	"vgrep/internal/model"
 	"vgrep/internal/search"
 )
 
 func RunReplacer(pattern string, fileTypes []string, ignoreCase bool) error {
-	if config.HasExecutable("rgr") {
-		var args []string
-		if ignoreCase {
-			args = append(args, "-i")
-		}
-		for _, ft := range fileTypes {
-			args = append(args, "-g", ft)
-		}
-		args = append(args, pattern)
-
-		cmd := exec.Command("rgr", args...)
-		cmd.Stdin = os.Stdin
-		cmd.Stdout = os.Stdout
-		cmd.Stderr = os.Stderr
-		return cmd.Run()
+	if !config.HasExecutable("rgr") {
+		return nil
 	}
 
-	fmt.Printf("%sEnter replacement string (rgr not found):%s ", color.FgBoldCyan, color.Reset)
-	reader := bufio.NewReader(os.Stdin)
-	replacement, _ := reader.ReadString('\n')
-	replacement = strings.TrimSpace(replacement)
-
 	var args []string
-	args = append(args, "-r", replacement)
 	if ignoreCase {
 		args = append(args, "-i")
 	}
@@ -47,16 +25,11 @@ func RunReplacer(pattern string, fileTypes []string, ignoreCase bool) error {
 	}
 	args = append(args, pattern)
 
-	fmt.Printf("\n%s--- Replacement Preview (rg -r %q %q) ---%s\n\n", color.FgBoldYellow, replacement, pattern, color.Reset)
-	cmd := exec.Command("rg", args...)
+	cmd := exec.Command("rgr", args...)
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
-	_ = cmd.Run()
-
-	fmt.Printf("\n%sPress Enter to return to vgrep...%s", color.FgGray, color.Reset)
-	_, _ = reader.ReadString('\n')
-	return nil
+	return cmd.Run()
 }
 
 func ReplacePattern(line, pattern, replacement string, ignoreCase bool) string {

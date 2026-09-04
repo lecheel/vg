@@ -323,6 +323,9 @@ func RenderTUI(
 		buf.WriteString(fmt.Sprintf("%s%s%s%s", color.FgGray, TruncateDisplayWidthEnd(helpText, termWidth-2), color.Reset, color.ClearLine))
 	} else {
 		helpText := "[j/k:move  SPC:del line  n:new rg  R/Tab:replace  a:all  J/K:file  g/G:jump  pgup/dn  /:filter  e/o:open  q:quit]"
+		if config.HasExecutable("rgr") {
+			helpText = "[j/k:move  SPC:del line  n:new rg  r:rgr  R/Tab:replace  a:all  J/K:file  g/G:jump  pgup/dn  /:filter  e/o:open  q:quit]"
+		}
 		buf.WriteString(fmt.Sprintf("%s%s%s%s", color.FgGray, TruncateDisplayWidthEnd(helpText, termWidth-2), color.Reset, color.ClearLine))
 	}
 
