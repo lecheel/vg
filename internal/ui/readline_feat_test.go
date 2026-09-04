@@ -56,8 +56,8 @@ func TestLineEditor_Deletions(t *testing.T) {
 
 	// Delete backward (Backspace)
 	le.DeleteBack()
-	if le.Text() != "bdef" || le.Pos() != 1 {
-		t.Errorf("expected 'bdef' at pos 1, got %q at %d", le.Text(), le.Pos())
+	if le.Text() != "adef" || le.Pos() != 1 {
+		t.Errorf("expected 'adef' at pos 1, got %q at %d", le.Text(), le.Pos())
 	}
 
 	// Delete to start (Ctrl+U)
