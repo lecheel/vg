@@ -354,8 +354,8 @@ func RenderTUI(
 		if searchEditor != nil {
 			renderedInput = searchEditor.Render(color.CursorBlock, color.Reset)
 		}
-		hints := fmt.Sprintf("(%sEnter%s: search, %sAlt+i%s: -i, %sCtrl+A/E%s: move, %sEsc%s: cancel)",
-			color.FgGold, color.FgGray, color.FgGold, color.FgGray, color.FgGold, color.FgGray, color.FgGold, color.FgGray)
+		hints := fmt.Sprintf("(%sEnter%s: search, %sAlt+i%s: -i, %sEsc%s: cancel)",
+			color.FgGold, color.FgGray, color.FgGold, color.FgGray, color.FgGold, color.FgGray)
 		buf.WriteString(fmt.Sprintf("%s %s %s%s%s%s",
 			promptLabel, renderedInput, color.FgGray, hints, color.Reset, color.ClearLine))
 	} else if inFilterMode {
@@ -363,19 +363,23 @@ func RenderTUI(
 		if filterEditor != nil {
 			renderedFilter = filterEditor.Render(color.CursorBlock, color.Reset)
 		}
-		hints := fmt.Sprintf("(%sEnter/Esc%s: done, %sCtrl+A/E%s: move, %sCtrl+U%s: clear)",
-			color.FgGold, color.FgGray, color.FgGold, color.FgGray, color.FgGold, color.FgGray)
+		hints := fmt.Sprintf("(%sEnter/Esc%s: done, %sCtrl+U%s: clear)",
+			color.FgGold, color.FgGray, color.FgGold, color.FgGray)
 		buf.WriteString(fmt.Sprintf("%sFILTER>%s %s %s%s%s%s",
 			color.FgBoldYellow, color.Reset, renderedFilter, color.FgGray, hints, color.Reset, color.ClearLine))
 	} else if inReplaceMode {
+		promptLabel := fmt.Sprintf("%sREPLACE>%s", color.FgBoldMagenta, color.Reset)
+		if ignoreCase {
+			promptLabel = fmt.Sprintf("%sREPLACE %s[-i]%s>%s", color.FgBoldMagenta, color.FgGold, color.FgBoldMagenta, color.Reset)
+		}
 		renderedReplace := replaceText + color.CursorBlock + " " + color.Reset
 		if replaceEditor != nil {
 			renderedReplace = replaceEditor.Render(color.CursorBlock, color.Reset)
 		}
-		hints := fmt.Sprintf("(%sEnter%s: apply, %sTab%s: inspect, %sCtrl+A/E%s: move, %sEsc%s: cancel)",
+		hints := fmt.Sprintf("(%sEnter%s: apply, %sTab%s: inspect, %sAlt+i%s: -i, %sEsc%s: cancel)",
 			color.FgGold, color.FgGray, color.FgGold, color.FgGray, color.FgGold, color.FgGray, color.FgGold, color.FgGray)
-		buf.WriteString(fmt.Sprintf("%sREPLACE>%s %s %s%s%s%s",
-			color.FgBoldMagenta, color.Reset, renderedReplace, color.FgGray, hints, color.Reset, color.ClearLine))
+		buf.WriteString(fmt.Sprintf("%s %s %s%s%s%s",
+			promptLabel, renderedReplace, color.FgGray, hints, color.Reset, color.ClearLine))
 	} else if replaceText != "" {
 		items := [][2]string{
 			{"Tab/R", "edit replace"},
@@ -604,6 +608,9 @@ func RunTUI(results []model.WigResultItem, searchPattern string, fileTypes []str
 				inReplaceMode = false
 				replaceEditor.Clear()
 				replaceText = ""
+				continue
+			case RLToggleCase:
+				ignoreCase = !ignoreCase
 				continue
 			case RLTab:
 				inReplaceMode = false
