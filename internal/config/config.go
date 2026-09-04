@@ -20,7 +20,96 @@ func GetConfigDir() string {
 	return dir
 }
 
+type Config struct {
+	Editor       string
+	SessionFile  string
+	FixedStrings bool
+}
+
+func ExpandHome(path string) string {
+	if path == "~" {
+		home, err := os.UserHomeDir()
+		if err == nil {
+			return home
+		}
+	}
+	if strings.HasPrefix(path, "~/") || strings.HasPrefix(path, `~\`) {
+		home, err := os.UserHomeDir()
+		if err == nil {
+			return filepath.Join(home, path[2:])
+		}
+	}
+	return path
+}
+
+func LoadConfig() Config {
+	cfg := Config{}
+	data, err := os.ReadFile(GetConfigFilePath())
+	if err != nil {
+		return cfg
+	}
+
+	lines := strings.Split(string(data), "\n")
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+
+		parts := strings.SplitN(line, "=", 2)
+		if len(parts) != 2 {
+			continue
+		}
+
+		key := strings.ToLower(strings.TrimSpace(parts[0]))
+		val := strings.TrimSpace(parts[1])
+		val = strings.Trim(val, `"'`)
+
+		switch key {
+		case "editor":
+			cfg.Editor = val
+		case "session_file":
+			cfg.SessionFile = ExpandHome(val)
+		case "fixed_strings", "literal":
+			cfg.FixedStrings = (val == "true" || val == "1")
+		}
+	}
+	return cfg
+}
+
+func GetEditor() string {
+	cfg := LoadConfig()
+	if cfg.Editor != "" && HasExecutable(cfg.Editor) {
+		return cfg.Editor
+	}
+
+	env := os.Getenv("EDITOR")
+	if env != "" && HasExecutable(env) {
+		return env
+	}
+
+	if cfg.Editor != "" {
+		return cfg.Editor
+	}
+
+	for _, ed := range []string{"wig", "nvim", "vim"} {
+		if HasExecutable(ed) {
+			return ed
+		}
+	}
+	if env != "" {
+		return env
+	}
+	return "vim"
+}
+
 func GetWigSessionPath() string {
+	cfg := LoadConfig()
+	if cfg.SessionFile != "" {
+		_ = os.MkdirAll(filepath.Dir(cfg.SessionFile), 0755)
+		return cfg.SessionFile
+	}
+
 	home, err := os.UserHomeDir()
 	if err != nil {
 		home = "."
@@ -86,6 +175,16 @@ func CheckHealth() {
 	}
 
 	// 4. Check Editor
+	cfg := LoadConfig()
+	if cfg.Editor != "" {
+		if HasExecutable(cfg.Editor) {
+			edPath, _ := exec.LookPath(cfg.Editor)
+			fmt.Printf("  ✅ %sConfig editor (%s)%s: Found (%s%s%s)\n", color.FgBoldGreen, cfg.Editor, color.Reset, color.FgGray, ShortenHome(edPath), color.Reset)
+		} else {
+			fmt.Printf("  ❌ %sConfig editor (%s)%s: Configured in config.toml but not found in $PATH\n", color.FgBoldRed, cfg.Editor, color.Reset)
+		}
+	}
+
 	editor := os.Getenv("EDITOR")
 	if editor != "" {
 		if HasExecutable(editor) {
@@ -94,7 +193,7 @@ func CheckHealth() {
 		} else {
 			fmt.Printf("  ❌ %s$EDITOR (%s)%s: Configured but binary not found in $PATH\n", color.FgBoldRed, editor, color.Reset)
 		}
-	} else {
+	} else if cfg.Editor == "" {
 		foundFallback := false
 		for _, ed := range []string{"wig", "nvim", "vim"} {
 			if HasExecutable(ed) {
@@ -122,22 +221,14 @@ func EditConfig() error {
 		defaultContent := `# vgrep configuration file
 editor = "wig"
 # session_file = "~/.config/wig/rg_search.json"
+# fixed_strings = false
 `
 		if err := os.WriteFile(configPath, []byte(defaultContent), 0644); err != nil {
 			return fmt.Errorf("failed to create config file: %w", err)
 		}
 	}
 
-	editor := os.Getenv("EDITOR")
-	if editor == "" {
-		if HasExecutable("wig") {
-			editor = "wig"
-		} else if HasExecutable("nvim") {
-			editor = "nvim"
-		} else {
-			editor = "vim"
-		}
-	}
+	editor := GetEditor()
 
 	cmd := exec.Command(editor, configPath)
 	cmd.Stdin = os.Stdin

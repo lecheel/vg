@@ -35,10 +35,21 @@ func FindProjectRoot() string {
 	return cwd
 }
 
-func RunRipgrep(pattern string, fileTypes []string, ignoreCase bool) ([]model.WigResultItem, error) {
+func RunRipgrep(pattern string, fileTypes []string, ignoreCase bool, fixedStringsOpt ...bool) ([]model.WigResultItem, error) {
 	args := []string{"--json"}
 	if ignoreCase {
 		args = append(args, "-i")
+	}
+
+	isFixed := false
+	if len(fixedStringsOpt) > 0 && fixedStringsOpt[0] {
+		isFixed = true
+	} else if config.LoadConfig().FixedStrings {
+		isFixed = true
+	}
+
+	if isFixed {
+		args = append(args, "-F")
 	}
 
 	for _, ft := range fileTypes {

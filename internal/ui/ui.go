@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -32,25 +33,38 @@ func formatShortcuts(items [][2]string) string {
 	return fmt.Sprintf("%s[%s%s]%s", color.FgGray, strings.Join(parts, "  "), color.FgGray, color.Reset)
 }
 
+func BuildEditorCommand(editor string, item model.WigResultItem) *exec.Cmd {
+	baseEditor := filepath.Base(editor)
+	line := item.Line
+	if line < 1 {
+		line = 1
+	}
+	col := item.Char + 1
+	if col < 1 {
+		col = 1
+	}
+
+	switch {
+	case baseEditor == "wig":
+		return exec.Command(editor, item.FilePath, fmt.Sprintf("+%d:%d", line, col))
+	case strings.Contains(baseEditor, "nvim") || strings.Contains(baseEditor, "vim") || baseEditor == "vi":
+		return exec.Command(editor, fmt.Sprintf("+call cursor(%d, %d)", line, col), item.FilePath)
+	case baseEditor == "code":
+		return exec.Command(editor, "-g", fmt.Sprintf("%s:%d:%d", item.FilePath, line, col))
+	case baseEditor == "hx" || baseEditor == "helix":
+		return exec.Command(editor, fmt.Sprintf("%s:%d:%d", item.FilePath, line, col))
+	case baseEditor == "nano":
+		return exec.Command(editor, fmt.Sprintf("+%d,%d", line, col), item.FilePath)
+	case strings.HasPrefix(baseEditor, "emacs"):
+		return exec.Command(editor, fmt.Sprintf("+%d:%d", line, col), item.FilePath)
+	default:
+		return exec.Command(editor, fmt.Sprintf("+%d", line), item.FilePath)
+	}
+}
+
 func OpenEditor(item model.WigResultItem) error {
-	editor := os.Getenv("EDITOR")
-	if editor == "" {
-		if config.HasExecutable("wig") {
-			editor = "wig"
-		} else if config.HasExecutable("nvim") {
-			editor = "nvim"
-		} else {
-			editor = "vim"
-		}
-	}
-
-	var cmd *exec.Cmd
-	if editor == "wig" {
-		cmd = exec.Command("wig", item.FilePath, fmt.Sprintf("+%d", item.Line))
-	} else {
-		cmd = exec.Command(editor, fmt.Sprintf("+%d", item.Line), item.FilePath)
-	}
-
+	editor := config.GetEditor()
+	cmd := BuildEditorCommand(editor, item)
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
@@ -74,6 +88,7 @@ func RenderTUI(
 	statusNotice string,
 	inSearchMode bool,
 	newSearchText string,
+	fixedStrings bool,
 ) {
 	termHeight, termWidth := GetTerminalSize()
 	if termHeight < 5 {
@@ -98,6 +113,10 @@ func RenderTUI(
 
 	if ignoreCase {
 		titleLeft += fmt.Sprintf(" %s[-i]%s", color.FgGray, color.Reset)
+		leftWidth += 5
+	}
+	if fixedStrings {
+		titleLeft += fmt.Sprintf(" %s[-F]%s", color.FgGold, color.Reset)
 		leftWidth += 5
 	}
 	if len(fileTypes) > 0 {
@@ -357,6 +376,7 @@ func RenderTUI(
 				{"j/k", "move"},
 				{"SPC", "del line"},
 				{"n", "new rg"},
+				{"F", "-F"},
 				{"r", "rgr"},
 				{"R/Tab", "replace"},
 				{"a", "all"},
@@ -371,6 +391,7 @@ func RenderTUI(
 				{"j/k", "move"},
 				{"SPC", "del line"},
 				{"n", "new rg"},
+				{"F", "-F"},
 				{"R/Tab", "replace"},
 				{"a", "all"},
 				{"J/K", "file"},
@@ -387,10 +408,17 @@ func RenderTUI(
 	os.Stdout.Write(buf.Bytes())
 }
 
-func RunTUI(results []model.WigResultItem, searchPattern string, fileTypes []string, ignoreCase bool) {
+func RunTUI(results []model.WigResultItem, searchPattern string, fileTypes []string, ignoreCase bool, fixedStringsOpt ...bool) {
 	if len(results) == 0 {
 		fmt.Printf("No matches found for %q\n", searchPattern)
 		return
+	}
+
+	fixedStrings := false
+	if len(fixedStringsOpt) > 0 && fixedStringsOpt[0] {
+		fixedStrings = true
+	} else if config.LoadConfig().FixedStrings {
+		fixedStrings = true
 	}
 
 	buildEntries := func(filter string) ([]model.DisplayEntry, []model.FileGroup) {
@@ -489,7 +517,7 @@ func RunTUI(results []model.WigResultItem, searchPattern string, fileTypes []str
 			activeNotice = statusNotice
 		}
 
-		RenderTUI(entries, groups, cursor, viewportStart, filter, searchPattern, fileTypes, ignoreCase, inFilterMode, inReplaceMode, replaceText, numBuffer, excluded, activeNotice, inSearchMode, newSearchText)
+		RenderTUI(entries, groups, cursor, viewportStart, filter, searchPattern, fileTypes, ignoreCase, inFilterMode, inReplaceMode, replaceText, numBuffer, excluded, activeNotice, inSearchMode, newSearchText, fixedStrings)
 
 		b, err := reader.ReadByte()
 		if err != nil {
@@ -512,7 +540,7 @@ func RunTUI(results []model.WigResultItem, searchPattern string, fileTypes []str
 					continue
 				}
 
-				newResults, err := search.RunRipgrep(query, fileTypes, ignoreCase)
+				newResults, err := search.RunRipgrep(query, fileTypes, ignoreCase, fixedStrings)
 				if err != nil {
 					statusNotice = fmt.Sprintf("%s❌ Search error: %v%s", color.FgBoldRed, err, color.Reset)
 					statusNoticeTime = time.Now()
@@ -732,6 +760,26 @@ func RunTUI(results []model.WigResultItem, searchPattern string, fileTypes []str
 			inSearchMode = true
 			newSearchText = ""
 			replaceText = ""
+			continue
+
+		case 'F':
+			fixedStrings = !fixedStrings
+			newResults, err := search.RunRipgrep(searchPattern, fileTypes, ignoreCase, fixedStrings)
+			if err != nil {
+				statusNotice = fmt.Sprintf("%s❌ Ripgrep error: %v%s", color.FgBoldRed, err, color.Reset)
+			} else {
+				results = newResults
+				entries, groups = buildEntries(filter)
+				if cursor >= len(entries) && len(entries) > 0 {
+					cursor = len(entries) - 1
+				}
+				if fixedStrings {
+					statusNotice = fmt.Sprintf("%s✓ Literal mode enabled (-F)%s", color.FgBoldGreen, color.Reset)
+				} else {
+					statusNotice = fmt.Sprintf("%s✓ Regex mode enabled%s", color.FgBoldYellow, color.Reset)
+				}
+			}
+			statusNoticeTime = time.Now()
 			continue
 
 		case ' ':
@@ -984,7 +1032,7 @@ func RunTUI(results []model.WigResultItem, searchPattern string, fileTypes []str
 	}
 }
 
-func PresentMatches(results []model.WigResultItem, pattern string, fileTypes []string, ignoreCase bool, useFzf bool) {
+func PresentMatches(results []model.WigResultItem, pattern string, fileTypes []string, ignoreCase bool, useFzf bool, fixedStringsOpt ...bool) {
 	if len(results) == 0 {
 		fmt.Printf("No matches found for %q\n", pattern)
 		return
@@ -1020,7 +1068,7 @@ func PresentMatches(results []model.WigResultItem, pattern string, fileTypes []s
 		return
 	}
 
-	RunTUI(results, pattern, fileTypes, ignoreCase)
+	RunTUI(results, pattern, fileTypes, ignoreCase, fixedStringsOpt...)
 }
 
 func LaunchViewSession() string {
