@@ -16,6 +16,7 @@ const (
 	RLToggleCase
 	RLArrowUp
 	RLArrowDown
+	RLQuit
 )
 
 // LineEditor provides full Readline-style in-memory line editing with cursor tracking.
@@ -209,6 +210,8 @@ func parseEscapeSequence(reader *bufio.Reader) string {
 	}
 
 	switch b1 {
+	case 'q', 'Q':
+		return "alt-q"
 	case 'i', 'I':
 		return "alt-i"
 	case 'b', 'B':
@@ -341,6 +344,8 @@ func (le *LineEditor) HandleInput(b byte, reader *bufio.Reader) ReadlineAction {
 		switch seq {
 		case "esc":
 			return RLCancel
+		case "alt-q":
+			return RLQuit
 		case "alt-i":
 			return RLToggleCase
 		case "alt-b", "ctrl-left":

@@ -173,7 +173,7 @@ When multiple matches are found, `vgrep` enters the interactive alternate-screen
 | `/` | Enter live filter mode (shows red block cursor; press `Enter`/`Esc` to exit filter) |
 | `r` | Launch `rgr` (repgrep) for interactive search and replace (hidden if `rgr` is not installed) |
 | `<Enter>` / `o` | Open file at line in `$EDITOR` (returns back to TUI after `:q`) |
-| `q` / `Ctrl+c` | Exit `vgrep` and restore original terminal screen cleanly |
+| `q` / `Alt+q` / `Ctrl+c` | Exit `vgrep` and restore original terminal screen cleanly |
 
 ---
 

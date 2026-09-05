@@ -555,6 +555,10 @@ func RunTUI(results []model.WigResultItem, searchPattern string, fileTypes []str
 		if inSearchMode {
 			action := searchEditor.HandleInput(b, reader)
 			switch action {
+			case RLQuit:
+				RestoreTerminal()
+				ExitAlternateScreen()
+				return
 			case RLCancel:
 				inSearchMode = false
 				searchEditor.Clear()
@@ -604,6 +608,10 @@ func RunTUI(results []model.WigResultItem, searchPattern string, fileTypes []str
 		if inReplaceMode {
 			action := replaceEditor.HandleInput(b, reader)
 			switch action {
+			case RLQuit:
+				RestoreTerminal()
+				ExitAlternateScreen()
+				return
 			case RLCancel:
 				inReplaceMode = false
 				replaceEditor.Clear()
@@ -642,6 +650,10 @@ func RunTUI(results []model.WigResultItem, searchPattern string, fileTypes []str
 		if inFilterMode {
 			action := filterEditor.HandleInput(b, reader)
 			switch action {
+			case RLQuit:
+				RestoreTerminal()
+				ExitAlternateScreen()
+				return
 			case RLCancel, RLSubmit:
 				inFilterMode = false
 				continue
@@ -941,6 +953,11 @@ func RunTUI(results []model.WigResultItem, searchPattern string, fileTypes []str
 			}
 			if reader.Buffered() > 0 {
 				b1, _ := reader.ReadByte()
+				if b1 == 'q' || b1 == 'Q' {
+					RestoreTerminal()
+					ExitAlternateScreen()
+					return
+				}
 				if b1 == 'i' || b1 == 'I' {
 					ignoreCase = !ignoreCase
 					newResults, err := search.RunRipgrep(searchPattern, fileTypes, ignoreCase, fixedStrings)

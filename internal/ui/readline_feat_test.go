@@ -127,3 +127,18 @@ func TestLineEditor_HandleInputCtrlKeys(t *testing.T) {
 		t.Errorf("Tab expected RLTab, got %v", action)
 	}
 }
+
+func TestLineEditor_HandleInputAltQ(t *testing.T) {
+	le := NewLineEditor("test")
+	reader := bufio.NewReader(strings.NewReader("q"))
+	action := le.HandleInput(27, reader)
+	if action != RLQuit {
+		t.Errorf("expected RLQuit on Alt+q, got %v", action)
+	}
+
+	readerUpper := bufio.NewReader(strings.NewReader("Q"))
+	actionUpper := le.HandleInput(27, readerUpper)
+	if actionUpper != RLQuit {
+		t.Errorf("expected RLQuit on Alt+Q, got %v", actionUpper)
+	}
+}
