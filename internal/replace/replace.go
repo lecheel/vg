@@ -2,14 +2,74 @@ package replace
 
 import (
 	"bytes"
+	"errors"
 	"os"
 	"os/exec"
 	"strings"
+	"sync"
 
 	"vgrep/internal/config"
 	"vgrep/internal/model"
 	"vgrep/internal/search"
 )
+
+// FileBackup captures the raw bytes and permissions of a file before replacement.
+type FileBackup struct {
+	Path string
+	Data []byte
+	Perm os.FileMode
+}
+
+// ReplaceUndo stores backup data for a single replacement undo operation.
+type ReplaceUndo struct {
+	Files   []FileBackup
+	Results []model.WigResultItem
+}
+
+var (
+	undoMu   sync.Mutex
+	lastUndo *ReplaceUndo
+)
+
+// CanUndo returns true if there is a previous replacement available to undo.
+func CanUndo() bool {
+	undoMu.Lock()
+	defer undoMu.Unlock()
+	return lastUndo != nil && len(lastUndo.Files) > 0
+}
+
+// ClearUndo clears any stored undo state.
+func ClearUndo() {
+	undoMu.Lock()
+	defer undoMu.Unlock()
+	lastUndo = nil
+}
+
+// Undo restores the files and results from the last replacement operation once.
+func Undo() ([]model.WigResultItem, int, error) {
+	undoMu.Lock()
+	defer undoMu.Unlock()
+
+	if lastUndo == nil || len(lastUndo.Files) == 0 {
+		return nil, 0, errors.New("nothing to undo")
+	}
+
+	undo := lastUndo
+	lastUndo = nil // Single-use undo: cannot undo more than once
+
+	var lastErr error
+	filesRestored := 0
+	for _, fb := range undo.Files {
+		if err := os.WriteFile(fb.Path, fb.Data, fb.Perm); err != nil {
+			lastErr = err
+		} else {
+			filesRestored++
+		}
+	}
+
+	_ = search.WriteWigSession(undo.Results)
+	return undo.Results, filesRestored, lastErr
+}
 
 func RunReplacer(pattern string, fileTypes []string, ignoreCase bool) error {
 	if !config.HasExecutable("rgr") {
@@ -76,6 +136,10 @@ func ApplyReplacement(results []model.WigResultItem, excluded map[int]bool, patt
 	replacedCount := 0
 	filesModified := 0
 
+	var backups []FileBackup
+	savedResults := make([]model.WigResultItem, len(results))
+	copy(savedResults, results)
+
 	for filePath, indices := range fileGroups {
 		data, err := os.ReadFile(filePath)
 		if err != nil {
@@ -115,8 +179,22 @@ func ApplyReplacement(results []model.WigResultItem, excluded map[int]bool, patt
 			newContent := strings.Join(lines, sep)
 			if err := os.WriteFile(filePath, []byte(newContent), perm); err == nil {
 				filesModified++
+				backups = append(backups, FileBackup{
+					Path: filePath,
+					Data: data,
+					Perm: perm,
+				})
 			}
 		}
+	}
+
+	if filesModified > 0 {
+		undoMu.Lock()
+		lastUndo = &ReplaceUndo{
+			Files:   backups,
+			Results: savedResults,
+		}
+		undoMu.Unlock()
 	}
 
 	_ = search.WriteWigSession(results)

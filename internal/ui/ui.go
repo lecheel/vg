@@ -414,6 +414,7 @@ func RenderTUI(
 				{"F", "-F Literal/Regex"},
 				{"r", "rgr"},
 				{"Tab", "replace"},
+				{"u", "undo"},
 				{"a", "all"},
 				{"J/K", "file"},
 				{"g/G", "jump"},
@@ -428,6 +429,7 @@ func RenderTUI(
 				{"n", "new rg"},
 				{"F", "-F"},
 				{"Tab", "replace"},
+				{"u", "undo"},
 				{"a", "all"},
 				{"J/K", "file"},
 				{"g/G", "jump"},
@@ -518,6 +520,8 @@ func RunTUI(results []model.WigResultItem, searchPattern string, fileTypes []str
 	filterEditor := NewLineEditor()
 	replaceEditor := NewLineEditor()
 
+	replace.ClearUndo()
+
 	statusNotice := ""
 	statusNoticeTime := time.Time{}
 
@@ -605,6 +609,7 @@ func RunTUI(results []model.WigResultItem, searchPattern string, fileTypes []str
 				filter = ""
 				filterEditor.Clear()
 				excluded = make(map[int]bool)
+				replace.ClearUndo()
 				cursor = 0
 				viewportStart = 0
 				entries, groups = buildEntries(filter)
@@ -671,7 +676,7 @@ func RunTUI(results []model.WigResultItem, searchPattern string, fileTypes []str
 				if err != nil {
 					statusNotice = fmt.Sprintf("%s❌ Replace error: %v%s", color.FgBoldRed, err, color.Reset)
 				} else if replacedCount > 0 {
-					statusNotice = fmt.Sprintf("%s✓ Replaced %d occurrences in %d files%s", color.FgBoldGreen, replacedCount, filesModified, color.Reset)
+					statusNotice = fmt.Sprintf("%s✓ Replaced %d occurrences in %d files (press 'u' to undo)%s", color.FgBoldGreen, replacedCount, filesModified, color.Reset)
 				} else {
 					statusNotice = fmt.Sprintf("%sNo occurrences replaced%s", color.FgBoldYellow, color.Reset)
 				}
@@ -821,6 +826,26 @@ func RunTUI(results []model.WigResultItem, searchPattern string, fileTypes []str
 			}
 			continue
 
+		case 'u':
+			if !replace.CanUndo() {
+				statusNotice = fmt.Sprintf("%sNothing to undo%s", color.FgGray, color.Reset)
+				statusNoticeTime = time.Now()
+				continue
+			}
+			restoredResults, filesRestored, err := replace.Undo()
+			if err != nil {
+				statusNotice = fmt.Sprintf("%s❌ Undo error: %v%s", color.FgBoldRed, err, color.Reset)
+			} else {
+				results = restoredResults
+				entries, groups = buildEntries(filter)
+				if cursor >= len(entries) && len(entries) > 0 {
+					cursor = len(entries) - 1
+				}
+				statusNotice = fmt.Sprintf("%s✓ Undid replace in %d file(s)%s", color.FgBoldGreen, filesRestored, color.Reset)
+			}
+			statusNoticeTime = time.Now()
+			continue
+
 		case 'R', '\t':
 			inReplaceMode = true
 			inReplacePreview = false
@@ -963,7 +988,7 @@ func RunTUI(results []model.WigResultItem, searchPattern string, fileTypes []str
 				if err != nil {
 					statusNotice = fmt.Sprintf("%s❌ Replace error: %v%s", color.FgBoldRed, err, color.Reset)
 				} else if replacedCount > 0 {
-					statusNotice = fmt.Sprintf("%s✓ Replaced %d occurrences in %d files%s", color.FgBoldGreen, replacedCount, filesModified, color.Reset)
+					statusNotice = fmt.Sprintf("%s✓ Replaced %d occurrences in %d files (press 'u' to undo)%s", color.FgBoldGreen, replacedCount, filesModified, color.Reset)
 				} else {
 					statusNotice = fmt.Sprintf("%sNo occurrences replaced%s", color.FgBoldYellow, color.Reset)
 				}
