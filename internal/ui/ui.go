@@ -82,6 +82,7 @@ func RenderTUI(
 	ignoreCase bool,
 	inFilterMode bool,
 	inReplaceMode bool,
+	inReplacePreview bool,
 	replaceText string,
 	numBuffer string,
 	excluded map[int]bool,
@@ -113,6 +114,15 @@ func RenderTUI(
 	badge := fmt.Sprintf("%s VGREP %s", color.BadgeVgrep, color.Reset)
 	titleLeft := fmt.Sprintf("%s %s%s%s", badge, color.FgBoldWhite, searchPattern, color.Reset)
 	leftWidth := 7 + 1 + StrDisplayWidth(searchPattern)
+
+	if inReplacePreview {
+		repDisp := replaceText
+		if repDisp == "" {
+			repDisp = `""`
+		}
+		titleLeft += fmt.Sprintf(" %s->%s %s%s%s", color.FgGold, color.Reset, color.FgBoldGreen, repDisp, color.Reset)
+		leftWidth += 4 + StrDisplayWidth(repDisp)
+	}
 
 	if ignoreCase {
 		titleLeft += fmt.Sprintf(" %s[-i]%s", color.FgGray, color.Reset)
@@ -243,7 +253,7 @@ func RenderTUI(
 				buf.WriteString(fmt.Sprintf("%s%s %s%s-%4d:%s %s%s%s%s\r\n",
 					cursorPrefix, relNumStr, bgStyle, color.FgRed, entry.MatchItem.Line, color.StrikethroughDim, cleanText, color.Reset, resetStyle, color.ClearLine))
 			} else {
-				if inReplaceMode || replaceText != "" {
+				if inReplaceMode || inReplacePreview {
 					if replaceText == "" {
 						cleanText = HighlightText(cleanText, searchPattern, ignoreCase, color.HighlightMatch, bgStyle)
 					} else {
@@ -267,6 +277,7 @@ func RenderTUI(
 	// 3. STATUS BAR
 	modeBadge := fmt.Sprintf("%s NORMAL %s", color.BadgeNormal, color.StatusResetBg)
 	modeWidth := 8
+
 	if inSearchMode {
 		modeBadge = fmt.Sprintf("%s SEARCH %s", color.BadgeSearch, color.StatusResetBg)
 		modeWidth = 8
@@ -276,9 +287,10 @@ func RenderTUI(
 	} else if inReplaceMode {
 		modeBadge = fmt.Sprintf("%s REPLACE %s", color.BadgeReplace, color.StatusResetBg)
 		modeWidth = 9
-	} else if replaceText != "" {
+	} else if inReplacePreview {
 		modeBadge = fmt.Sprintf("%s PREVIEW %s", color.BadgeReplace, color.StatusResetBg)
 		modeWidth = 9
+
 	}
 
 	countBadge := ""
@@ -380,7 +392,7 @@ func RenderTUI(
 			color.FgGold, color.FgGray, color.FgGold, color.FgGray, color.FgGold, color.FgGray, color.FgGold, color.FgGray)
 		buf.WriteString(fmt.Sprintf("%s %s %s%s%s%s",
 			promptLabel, renderedReplace, color.FgGray, hints, color.Reset, color.ClearLine))
-	} else if replaceText != "" {
+	} else if inReplacePreview {
 		items := [][2]string{
 			{"Tab", "edit replace"},
 			{"Enter", "apply"},
@@ -496,8 +508,11 @@ func RunTUI(results []model.WigResultItem, searchPattern string, fileTypes []str
 
 	inFilterMode := false
 	inReplaceMode := false
+	inReplacePreview := false
 	inSearchMode := false
 	replaceText := ""
+	confirmEmptyReplace := false
+	confirmEmptyTime := time.Time{}
 
 	searchEditor := NewLineEditor()
 	filterEditor := NewLineEditor()
@@ -544,11 +559,15 @@ func RunTUI(results []model.WigResultItem, searchPattern string, fileTypes []str
 		}
 
 		newSearchText := searchEditor.Text()
-		RenderTUI(entries, groups, cursor, viewportStart, filter, searchPattern, fileTypes, ignoreCase, inFilterMode, inReplaceMode, replaceText, numBuffer, excluded, activeNotice, inSearchMode, newSearchText, fixedStrings, searchEditor, filterEditor, replaceEditor)
+		RenderTUI(entries, groups, cursor, viewportStart, filter, searchPattern, fileTypes, ignoreCase, inFilterMode, inReplaceMode, inReplacePreview, replaceText, numBuffer, excluded, activeNotice, inSearchMode, newSearchText, fixedStrings, searchEditor, filterEditor, replaceEditor)
 
 		b, err := reader.ReadByte()
 		if err != nil {
 			break
+		}
+
+		if confirmEmptyReplace && b != '\r' && b != '\n' {
+			confirmEmptyReplace = false
 		}
 
 		// Search Typing Mode
@@ -614,6 +633,8 @@ func RunTUI(results []model.WigResultItem, searchPattern string, fileTypes []str
 				return
 			case RLCancel:
 				inReplaceMode = false
+				inReplacePreview = false
+				confirmEmptyReplace = false
 				replaceEditor.Clear()
 				replaceText = ""
 				continue
@@ -622,11 +643,30 @@ func RunTUI(results []model.WigResultItem, searchPattern string, fileTypes []str
 				continue
 			case RLTab:
 				inReplaceMode = false
+				inReplacePreview = true
+				confirmEmptyReplace = false
 				replaceText = replaceEditor.Text()
+				if replaceText == "" {
+					statusNotice = fmt.Sprintf("%sPreviewing empty replace (deletion). Press Enter to apply.%s", color.FgBoldYellow, color.Reset)
+				} else {
+					statusNotice = fmt.Sprintf("%sPreviewing replace: %q -> %q. Press Enter to apply.%s", color.FgBoldCyan, searchPattern, replaceText, color.Reset)
+				}
+				statusNoticeTime = time.Now()
 				continue
 			case RLSubmit:
-				inReplaceMode = false
 				replaceText = replaceEditor.Text()
+				if replaceText == "" {
+					inReplaceMode = false
+					inReplacePreview = true
+					confirmEmptyReplace = true
+					confirmEmptyTime = time.Now()
+					statusNotice = fmt.Sprintf("%s⚠️  Empty replace will delete matches! Press Enter again to confirm%s", color.FgBoldYellow, color.Reset)
+					statusNoticeTime = time.Now()
+					continue
+				}
+				inReplaceMode = false
+				inReplacePreview = false
+				confirmEmptyReplace = false
 				replacedCount, filesModified, err := replace.ApplyReplacement(results, excluded, searchPattern, replaceText, ignoreCase)
 				if err != nil {
 					statusNotice = fmt.Sprintf("%s❌ Replace error: %v%s", color.FgBoldRed, err, color.Reset)
@@ -716,6 +756,8 @@ func RunTUI(results []model.WigResultItem, searchPattern string, fileTypes []str
 		case 'n':
 			inSearchMode = true
 			searchEditor.Clear()
+			inReplacePreview = false
+			confirmEmptyReplace = false
 			replaceText = ""
 			replaceEditor.Clear()
 			continue
@@ -781,6 +823,8 @@ func RunTUI(results []model.WigResultItem, searchPattern string, fileTypes []str
 
 		case 'R', '\t':
 			inReplaceMode = true
+			inReplacePreview = false
+			confirmEmptyReplace = false
 			replaceEditor.SetText(replaceText)
 			continue
 
@@ -903,7 +947,18 @@ func RunTUI(results []model.WigResultItem, searchPattern string, fileTypes []str
 			}
 
 		case '\r', '\n':
-			if replaceText != "" {
+			if inReplacePreview {
+				if replaceText == "" {
+					if !confirmEmptyReplace || time.Since(confirmEmptyTime) > 4*time.Second {
+						confirmEmptyReplace = true
+						confirmEmptyTime = time.Now()
+						statusNotice = fmt.Sprintf("%s⚠️  Empty replace will delete matches! Press Enter again to confirm%s", color.FgBoldYellow, color.Reset)
+						statusNoticeTime = time.Now()
+						continue
+					}
+				}
+				confirmEmptyReplace = false
+				inReplacePreview = false
 				replacedCount, filesModified, err := replace.ApplyReplacement(results, excluded, searchPattern, replaceText, ignoreCase)
 				if err != nil {
 					statusNotice = fmt.Sprintf("%s❌ Replace error: %v%s", color.FgBoldRed, err, color.Reset)
@@ -914,6 +969,7 @@ func RunTUI(results []model.WigResultItem, searchPattern string, fileTypes []str
 				}
 				statusNoticeTime = time.Now()
 				replaceText = ""
+				replaceEditor.Clear()
 				entries, groups = buildEntries(filter)
 				continue
 			}
@@ -945,8 +1001,13 @@ func RunTUI(results []model.WigResultItem, searchPattern string, fileTypes []str
 			if reader.Buffered() == 0 {
 				time.Sleep(20 * time.Millisecond)
 				if reader.Buffered() == 0 {
-					if replaceText != "" {
+					if inReplacePreview {
+						inReplacePreview = false
 						replaceText = ""
+						replaceEditor.Clear()
+						confirmEmptyReplace = false
+						statusNotice = fmt.Sprintf("%sReplace preview cleared%s", color.FgGray, color.Reset)
+						statusNoticeTime = time.Now()
 						continue
 					}
 				}
