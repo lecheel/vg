@@ -142,3 +142,12 @@ func TestLineEditor_HandleInputAltQ(t *testing.T) {
 		t.Errorf("expected RLQuit on Alt+Q, got %v", actionUpper)
 	}
 }
+
+func TestLineEditor_HandleInputEscapeAlone(t *testing.T) {
+	le := NewLineEditor("test")
+	reader := bufio.NewReader(strings.NewReader(""))
+	action := le.HandleInput(27, reader)
+	if action != RLCancel {
+		t.Errorf("expected RLCancel on Esc alone, got %v", action)
+	}
+}

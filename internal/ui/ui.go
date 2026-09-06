@@ -536,6 +536,8 @@ func RunTUI(results []model.WigResultItem, searchPattern string, fileTypes []str
 	defer RestoreTerminal()
 
 	reader := bufio.NewReader(os.Stdin)
+	stdinReader = reader
+	defer func() { stdinReader = nil }()
 	var numBuffer string
 
 	for {
@@ -823,6 +825,7 @@ func RunTUI(results []model.WigResultItem, searchPattern string, fileTypes []str
 				EnterAlternateScreen()
 				_, _ = SetRawTerminal()
 				reader = bufio.NewReader(os.Stdin)
+				stdinReader = reader
 			}
 			continue
 
@@ -1020,6 +1023,7 @@ func RunTUI(results []model.WigResultItem, searchPattern string, fileTypes []str
 			EnterAlternateScreen()
 			_, _ = SetRawTerminal()
 			reader = bufio.NewReader(os.Stdin)
+			stdinReader = reader
 			continue
 
 		case 27:

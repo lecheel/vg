@@ -196,12 +196,25 @@ func (le *LineEditor) Render(cursorStyle, resetStyle string) string {
 	return before + cursorStyle + at + resetStyle + after
 }
 
+var stdinReader *bufio.Reader
+
+func ensureBuffered(reader *bufio.Reader, n int, waitDelay time.Duration) {
+	if reader.Buffered() >= n {
+		return
+	}
+	if reader != stdinReader {
+		_, _ = reader.Peek(n)
+		return
+	}
+	if waitDelay > 0 {
+		time.Sleep(waitDelay)
+	}
+}
+
 func parseEscapeSequence(reader *bufio.Reader) string {
+	ensureBuffered(reader, 1, 25*time.Millisecond)
 	if reader.Buffered() == 0 {
-		time.Sleep(25 * time.Millisecond)
-		if reader.Buffered() == 0 {
-			return "esc"
-		}
+		return "esc"
 	}
 
 	b1, err := reader.ReadByte()
@@ -223,6 +236,7 @@ func parseEscapeSequence(reader *bufio.Reader) string {
 	case 8, 127:
 		return "alt-backspace"
 	case 'O':
+		ensureBuffered(reader, 1, 0)
 		if reader.Buffered() > 0 {
 			b2, _ := reader.ReadByte()
 			if b2 == 'H' {
@@ -234,9 +248,7 @@ func parseEscapeSequence(reader *bufio.Reader) string {
 		}
 		return "esc"
 	case '[':
-		if reader.Buffered() == 0 {
-			time.Sleep(10 * time.Millisecond)
-		}
+		ensureBuffered(reader, 1, 10*time.Millisecond)
 		if reader.Buffered() == 0 {
 			return "esc"
 		}
@@ -255,26 +267,31 @@ func parseEscapeSequence(reader *bufio.Reader) string {
 		case 'F':
 			return "end"
 		case '1':
+			ensureBuffered(reader, 1, 0)
 			if reader.Buffered() > 0 {
 				b3, _ := reader.ReadByte()
 				if b3 == '~' {
 					return "home"
 				}
-				if b3 == ';' && reader.Buffered() >= 2 {
-					b4, _ := reader.ReadByte()
-					b5, _ := reader.ReadByte()
-					if b4 == '5' {
-						if b5 == 'D' {
-							return "ctrl-left"
-						}
-						if b5 == 'C' {
-							return "ctrl-right"
+				if b3 == ';' {
+					ensureBuffered(reader, 2, 0)
+					if reader.Buffered() >= 2 {
+						b4, _ := reader.ReadByte()
+						b5, _ := reader.ReadByte()
+						if b4 == '5' {
+							if b5 == 'D' {
+								return "ctrl-left"
+							}
+							if b5 == 'C' {
+								return "ctrl-right"
+							}
 						}
 					}
 				}
 			}
 			return "home"
 		case '3':
+			ensureBuffered(reader, 1, 0)
 			if reader.Buffered() > 0 {
 				b3, _ := reader.ReadByte()
 				if b3 == '~' {
@@ -283,6 +300,7 @@ func parseEscapeSequence(reader *bufio.Reader) string {
 			}
 			return "delete"
 		case '4':
+			ensureBuffered(reader, 1, 0)
 			if reader.Buffered() > 0 {
 				b3, _ := reader.ReadByte()
 				if b3 == '~' {
